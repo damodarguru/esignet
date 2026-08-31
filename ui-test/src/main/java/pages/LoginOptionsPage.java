@@ -9,16 +9,11 @@ import java.util.List;
 import java.util.Map;
 
 import org.openqa.selenium.By;
-import org.openqa.selenium.StaleElementReferenceException;
-import org.openqa.selenium.TimeoutException;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.FindBy;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
-
-import utils.EsignetConfigManager;
-import utils.ResourceBundleLoader;
 
 public class LoginOptionsPage extends BasePage {
 
@@ -95,7 +90,7 @@ public class LoginOptionsPage extends BasePage {
 	@FindBy(id = "Otp_login_dropdown_button")
 	WebElement prefixNumberField;
 
-	@FindBy(id = "Password_login_dropdown_button")
+	@FindBy(id = "mobile_login_dropdown_button")
 	WebElement passwordScreenMobilePrefixDropdownButton;
 
 	@FindBy(id = "KHM")
@@ -125,35 +120,11 @@ public class LoginOptionsPage extends BasePage {
 	@FindBy(id = "Otp_email")
 	WebElement emailField;
 
-	@FindBy(id = "Password_mobile")
-	WebElement mobilePasswordField;
-
-	@FindBy(id = "Password_IND")
-	WebElement mobileNumberFieldInPasswordScreen;
-
-	@FindBy(id = "verify_password")
-	WebElement passwordWithLoginButton;
-
 	@FindBy(id = "Password_vid")
 	WebElement vidPasswordField;
 
-	@FindBy(id = "Password_email")
-	WebElement emailPasswordField;
-
-	@FindBy(id = "Password_login_dropdown_button")
-	WebElement prefixNumberFieldInPasswordScreen;
-
-	@FindBy(xpath = "//input[@id='vid' and @placeholder='Enter UIN/VID']")
-	WebElement vidFieldInPasswordScreen;
-
-	@FindBy(id = "sbi_vid")
-	WebElement biometricVidField;
-
-	@FindBy(id = "secure-biometric-interface-integration")
-	WebElement biometricIntegrationContainer;
-
-	@FindBy(id = "try_again")
-	WebElement networkErrorTryAgainButton;
+	@FindBy(id = "verify_password")
+	WebElement passwordLoginButton;
 
 	public boolean isLogoDisplayed() {
 		return isElementVisible(brandLogo, "Verified is logo displayed");
@@ -165,16 +136,6 @@ public class LoginOptionsPage extends BasePage {
 
 	public boolean isLanguageDropdownDisplayed() {
 		return isElementVisible(languageDropdown, "Verified language dropdown is visible");
-	}
-
-	public boolean isNetworkErrorScreenDisplayed() {
-		return isElementVisible(networkErrorTryAgainButton, "Verified network error screen is displayed");
-	}
-
-	public void clickTryAgainOnNetworkErrorScreen() {
-		clickOnElement(networkErrorTryAgainButton, "Clicked try again on the network error screen");
-		new WebDriverWait(driver, Duration.ofSeconds(30))
-				.until(ExpectedConditions.visibilityOf(loginWithOtpBtn));
 	}
 
 	public void clickOnLanguageDropdown() {
@@ -216,22 +177,6 @@ public class LoginOptionsPage extends BasePage {
 		return !moreWaysToSignIn.isEmpty() && moreWaysToSignIn.get(0).isDisplayed();
 	}
 
-	public boolean isLoginWithKbiDisplayed() {
-		return isElementDisplayed(loginWithKbiBtn);
-	}
-
-	// KBI can sit behind the "more ways to sign in" expander when the client offers more than a few
-	// auth factors; reveal it first so clickOnLoginWithKbi() finds the button.
-	public void revealMoreOptionsIfPresent() {
-		if (!isElementDisplayed(loginWithKbiBtn) && isMoreWaysToSignInOptionDisplayed()) {
-			clickOnElement(moreWaysToSignIn.get(0), "Clicked on more ways to sign in");
-		}
-	}
-
-	public void clickOnLoginWithKbi() {
-		clickOnElement(loginWithKbiBtn, "Clicked on login with KBI");
-	}
-
 	public Map<String, WebElement> getAcrToElementMap() {
 		Map<String, WebElement> map = new HashMap<>();
 		map.put("PWD", loginWithPasswordBtn);
@@ -244,8 +189,8 @@ public class LoginOptionsPage extends BasePage {
 	}
 
 	public void selectLanguage(String language) {
-		WebElement langOption = waitForElementVisible(
-				By.xpath("//div[@role='menuitem' and normalize-space()='" + language + "']"));
+		WebElement langOption = driver
+				.findElement(By.xpath("//div[@role='menuitem' and normalize-space()='" + language + "']"));
 
 		langOption.click();
 	}
@@ -258,11 +203,6 @@ public class LoginOptionsPage extends BasePage {
 
 	public WebElement getLoginWithOtpButton() {
 		return loginWithOtpBtn;
-	}
-
-	public String getLoginWithOtpButtonText() {
-		waitForElementVisible(loginWithOtpBtn);
-		return loginWithOtpBtn.getText().trim();
 	}
 
 	public boolean isMobileNumberOptionDisplayed() {
@@ -278,12 +218,19 @@ public class LoginOptionsPage extends BasePage {
 				"Clicked on mobile prefix dropdown button on the password login screen");
 	}
 
+	/**
+	 * Types text into the Mobile Number identifier field on the password login
+	 * screen. Reuses the mobileNumberOption locator (id="mobile") - once the
+	 * mobile option is selected, oidc-ui replaces that selection button with
+	 * the identifier text input carrying the same id (see Password.js), so the
+	 * same @FindBy proxy re-resolves to the input.
+	 */
 	public void typeIntoMobileNumberFieldOnPasswordScreen(String text) {
-		mobileNumberFieldInPasswordScreen.sendKeys(text);
+		mobileNumberOption.sendKeys(text);
 	}
 
 	public String getMobileNumberFieldValueOnPasswordScreen() {
-		return mobileNumberFieldInPasswordScreen.getAttribute("value");
+		return mobileNumberOption.getAttribute("value");
 	}
 
 	public boolean isNrcIdOptionDisplayed() {
@@ -298,6 +245,13 @@ public class LoginOptionsPage extends BasePage {
 		return isElementVisible(emailOption, "Verified email option is displayed for authentication");
 	}
 
+	/**
+	 * Counts how many of the known login-ID-option buttons (mobile, nrc, vid,
+	 * email) are currently rendered. Uses the non-waiting isElementDisplayed()
+	 * check (not isMobileNumberOptionDisplayed() etc., which wait for
+	 * visibility and would throw rather than return false for an option that
+	 * is legitimately absent from the configured set).
+	 */
 	public int getDisplayedLoginIdOptionsCount() {
 		int count = 0;
 		if (isElementDisplayed(mobileNumberOption)) {
@@ -329,6 +283,10 @@ public class LoginOptionsPage extends BasePage {
 
 	public void clickOnLoginWithPassword() {
 		clickOnElement(loginWithPasswordBtn, "Clicked on login with password");
+	}
+
+	public void clickOnLoginWithKbi() {
+		clickOnElement(loginWithKbiBtn, "Clicked on login with KBI");
 	}
 
 	public boolean isGetOtpButtonEnabled() {
@@ -385,7 +343,6 @@ public class LoginOptionsPage extends BasePage {
 	}
 
 	public void enterVid(String vid) {
-		waitForElementVisible(vidField);
 		vidField.clear();
 		enterText(vidField, vid, "Entered vid in vid field");
 	}
@@ -395,229 +352,27 @@ public class LoginOptionsPage extends BasePage {
 	}
 
 	public void enterEmail(String email) {
-		waitForElementVisible(emailField);
 		emailField.clear();
 		enterText(emailField, email, "Entered email in email field");
 	}
 
-	public boolean isLoginHeaderIsDisplayed() {
-		return isElementVisible(loginHeader,
-				"Verified login header is displayed");
+	/**
+	 * Types the individual ID into the VID field on the password login screen.
+	 * Reuses the vidOption locator (id="vid") - once the vid option is selected,
+	 * oidc-ui replaces that selection button with the identifier text input
+	 * carrying the same id (see Password.js), same pattern as
+	 * typeIntoMobileNumberFieldOnPasswordScreen.
+	 */
+	public void typeIntoVidFieldOnPasswordScreen(String vid) {
+		vidOption.sendKeys(vid);
 	}
 
-	public boolean isLoginSubHeaderIsDisplayed() {
-		return isElementVisible(loginSubHeader,
-				"Verified invalid login sub header is displayed");
+	public void enterPasswordForVidLogin(String password) {
+		enterText(vidPasswordField, password, "Entered password on the vid password login screen");
 	}
 
-	public boolean isSelectPreferredIdHeaderIsDisplayed() {
-		return isElementVisible(selectPreferredIdHeader,
-				"Verified select preferred id header is displayed");
-	}
-
-	public void enterPasswordForMobileId(String password) {
-		mobilePasswordField.clear();
-		enterText(mobilePasswordField, password, "Entered password in password field");
-	}
-
-	public void enterMobileNumberInPasswordScreen(String mobileNumber) {
-		waitForElementVisible(mobileNumberFieldInPasswordScreen);
-		mobileNumberFieldInPasswordScreen.clear();
-		enterText(mobileNumberFieldInPasswordScreen, mobileNumber, "Entered mobile number in mobile number field");
-	}
-
-	public void clickOnLoginButtonWithPasswordButton() {
-		clickOnElement(passwordWithLoginButton, "Clicked on password with login button");
-	}
-
-	public boolean isPasswordWithLoginButtonEnabled() {
-		return isButtonEnabled(passwordWithLoginButton, "Verified password with login button is enabled");
-	}
-
-	public void enterPasswordForVidId(String password) {
-		vidPasswordField.clear();
-		enterText(vidPasswordField, password, "Entered password in password field");
-	}
-
-	public void enterPasswordForEmailId(String password) {
-		emailPasswordField.clear();
-		enterText(emailPasswordField, password, "Entered password in password field");
-	}
-
-	public void clickOnPrefixNumberFieldButtonInPasswordScreen() {
-		clickOnElement(prefixNumberFieldInPasswordScreen, "Clicked on Prefix Number Field button");
-	}
-
-	public void enterVidInPasswordScreen(String vid) {
-		vidFieldInPasswordScreen.clear();
-		enterText(vidFieldInPasswordScreen, vid, "Entered vid in vid field");
-	}
-
-	public boolean isBiometricIntegrationContainerDisplayed() {
-		return isElementVisible(biometricIntegrationContainer,
-				"Verified secure biometric interface integration container is displayed");
-	}
-
-	public boolean isBiometricVidOptionDisplayed() {
-		return isElementVisible(vidOption, "Verified UIN/VID option is displayed on biometric screen");
-	}
-
-	public void clickOnBiometricVidOptionButton() {
-		clickOnElement(vidOption, "Clicked on UIN/VID option on biometric screen");
-	}
-
-	public boolean isBiometricVidTextFieldDisplayed() {
-		return isElementVisible(biometricVidField, "Verified VID text field is displayed on biometric screen");
-	}
-
-	private static final String SCANNING_DEVICES_MSG_KEY = "loadingMsgs.scanning_devices_msg";
-
-	public boolean isScanningDevicesMessageDisplayed() {
-		return waitForLocalizedTextWithinBiometricContainer(SCANNING_DEVICES_MSG_KEY, getBiometricScanningWaitSeconds());
-	}
-
-	public boolean isRetryScanButtonNotDisplayedWhileScanning() {
-		int waitSeconds = getBiometricScanningWaitSeconds();
-		WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(waitSeconds));
-		try {
-			wait.until(driver -> isLocalizedTextVisibleWithinBiometricContainer(SCANNING_DEVICES_MSG_KEY)
-					&& !isRetryScanButtonVisible());
-			return true;
-		} catch (TimeoutException e) {
-			return false;
-		}
-	}
-
-	public boolean waitForDeviceNotFoundMessageDisplayed() {
-		int waitSeconds = getBiometricDeviceDiscoveryTimeoutSeconds();
-		WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(waitSeconds));
-		try {
-			wait.until(driver -> isDeviceNotFoundMessageVisible());
-			return true;
-		} catch (TimeoutException e) {
-			return false;
-		}
-	}
-
-	public void clickOnBiometricDeviceScanRetryButton() {
-		int waitSeconds = getBiometricDeviceDiscoveryTimeoutSeconds();
-		WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(waitSeconds));
-		By retryButtonLocator = By.cssSelector(
-				"#secure-biometric-interface-integration button[type='button'].sbd-cursor-pointer.sbd-ml-1, "
-						+ "#secure-biometric-interface-integration div.sbd-dropdown_container + button[type='button'], "
-						+ "#secure-biometric-interface-integration div.sbd-flex button[type='button'].sbd-cursor-pointer");
-		WebElement retryButton = wait.until(ExpectedConditions.elementToBeClickable(retryButtonLocator));
-		clickOnElement(retryButton, "Clicked on biometric device scan retry button");
-	}
-
-	private int getBiometricScanningWaitSeconds() {
-		return parseTimeoutProperty("biometricScanningWaitSeconds", 15);
-	}
-
-	private int getBiometricDeviceDiscoveryTimeoutSeconds() {
-		return parseTimeoutProperty("biometricDeviceDiscoveryTimeoutSeconds", 30);
-	}
-
-	private int parseTimeoutProperty(String propertyName, int defaultValue) {
-		try {
-			String value = EsignetConfigManager.getproperty(propertyName);
-			if (value == null || value.isBlank()) {
-				return defaultValue;
-			}
-			return Integer.parseInt(value.trim());
-		} catch (NumberFormatException e) {
-			return defaultValue;
-		}
-	}
-
-	private boolean waitForLocalizedTextWithinBiometricContainer(String resourceKey, int timeoutSeconds) {
-		WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(timeoutSeconds));
-		try {
-			wait.until(driver -> isLocalizedTextVisibleWithinBiometricContainer(resourceKey));
-			return true;
-		} catch (TimeoutException e) {
-			return false;
-		}
-	}
-
-	private boolean isDeviceNotFoundMessageVisible() {
-		String containerText = getBiometricContainerText();
-		if (containerText.contains("device not found") && containerText.contains("connectivity")) {
-			return true;
-		}
-
-		try {
-			List<WebElement> alerts = driver.findElements(
-					By.cssSelector("#secure-biometric-interface-integration div[role='alert']"));
-			for (WebElement alert : alerts) {
-				if (alert.isDisplayed()) {
-					String alertText = normalizeMessage(safeGetText(alert));
-					if (alertText.contains("device not found") && alertText.contains("connectivity")) {
-						return true;
-					}
-				}
-			}
-		} catch (StaleElementReferenceException ignored) {
-			// DOM is still updating while SBI scans for devices; retry on next wait poll.
-		}
-
-		String expectedMessage = ResourceBundleLoader.get("errors.no_devices_found_msg");
-		return !expectedMessage.startsWith("!!MISSING_KEY:")
-				&& containerText.contains(normalizeMessage(expectedMessage));
-	}
-
-	private boolean isTextVisibleWithinBiometricContainer(String normalizedPartialText) {
-		if (normalizedPartialText == null || normalizedPartialText.isBlank()) {
-			return false;
-		}
-		return getBiometricContainerText().contains(normalizeMessage(normalizedPartialText));
-	}
-
-	private String getBiometricContainerText() {
-		try {
-			if (!biometricIntegrationContainer.isDisplayed()) {
-				return "";
-			}
-			return normalizeMessage(safeGetText(biometricIntegrationContainer));
-		} catch (StaleElementReferenceException e) {
-			return "";
-		}
-	}
-
-	private String safeGetText(WebElement element) {
-		try {
-			return element.getText();
-		} catch (StaleElementReferenceException e) {
-			return "";
-		}
-	}
-
-	private boolean isLocalizedTextVisibleWithinBiometricContainer(String resourceKey) {
-		String expectedMessage = ResourceBundleLoader.get(resourceKey);
-		if (expectedMessage == null || expectedMessage.startsWith("!!MISSING_KEY:")) {
-			return false;
-		}
-		return isTextVisibleWithinBiometricContainer(normalizeMessage(expectedMessage));
-	}
-
-	private boolean isRetryScanButtonVisible() {
-		List<WebElement> retryButtons = driver.findElements(
-				By.xpath("//div[@id='secure-biometric-interface-integration']//button[contains("
-						+ "translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),"
-						+ "'retry')]"));
-		if (retryButtons.stream().anyMatch(WebElement::isDisplayed)) {
-			return true;
-		}
-
-		List<WebElement> iconRetryButtons = driver.findElements(By.cssSelector(
-				"#secure-biometric-interface-integration button[type='button'].sbd-cursor-pointer.sbd-ml-1, "
-						+ "#secure-biometric-interface-integration div.sbd-dropdown_container + button[type='button'], "
-						+ "#secure-biometric-interface-integration div.sbd-flex button[type='button'].sbd-cursor-pointer"));
-		return iconRetryButtons.stream().anyMatch(WebElement::isDisplayed);
-	}
-
-	private String normalizeMessage(String message) {
-		return message == null ? "" : message.replaceAll("\\s+", " ").trim().toLowerCase();
+	public void clickOnPasswordLoginButton() {
+		clickOnElement(passwordLoginButton, "Clicked on login button in password screen");
 	}
 
 }

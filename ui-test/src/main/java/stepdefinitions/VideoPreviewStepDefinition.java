@@ -93,4 +93,69 @@ public class VideoPreviewStepDefinition {
 				"The list of instructions not displayed in video preview screen page");
 	}
 
+	@Then("verify camera access disabled message is displayed")
+	public void verifyCameraAccessDisabledMessageDisplayed() {
+		Assert.assertTrue(videoPreviewPage.isCameraAccessDisabledHeaderDisplayed(),
+				"Camera access disabled message is not displayed");
+	}
+
+	@Then("verify camera access disabled subtitle is displayed")
+	public void verifyCameraAccessDisabledSubtitleDisplayed() {
+		Assert.assertTrue(videoPreviewPage.isCameraAccessDisabledSubHeaderDisplayed(),
+				"Camera access disabled subtitle is not displayed");
+	}
+
+	@Then("verify proceed button is disabled in video preview screen page")
+	public void verifyProceedButtonDisabledOnVideoPreviewScreen() {
+		Assert.assertTrue(videoPreviewPage.isProceedButtonDisabled(), "Proceed button is not disabled");
+	}
+
+	@Then("verify camera permission state is {string}")
+	public void verifyCameraPermissionState(String expectedState) {
+		Assert.assertEquals(videoPreviewPage.getCameraPermissionState(), expectedState,
+				"Camera permission state did not match expected value");
+	}
+
+	@Then("user grants camera access from browser settings")
+	public void userGrantsCameraAccessFromBrowserSettings() {
+		videoPreviewPage.grantCameraAccessAtRuntime();
+	}
+
+	@Then("user refreshes the browser")
+	public void userRefreshesTheBrowser() {
+		videoPreviewPage.refreshBrowser("Refreshed the browser to re-evaluate camera permission");
+	}
+
+	@Then("user refreshes the browser and a leave site prompt should appear")
+	public void userRefreshesBrowserExpectingLeaveSitePrompt() {
+		videoPreviewPage.refreshExpectingLeaveSitePrompt();
+	}
+
+	@Then("user navigates back in the browser and a leave site prompt should appear")
+	public void userNavigatesBackExpectingLeaveSitePrompt() {
+		videoPreviewPage.navigateBackExpectingLeaveSitePrompt();
+	}
+
+	@Then("user cancels the leave site prompt")
+	public void userCancelsLeaveSitePrompt() {
+		videoPreviewPage.dismissAlert();
+	}
+
+	@Then("user confirms the leave site prompt")
+	public void userConfirmsLeaveSitePrompt() {
+		videoPreviewPage.acceptAlert();
+	}
+
+	@Then("verify user is no longer on the video preview screen")
+	public void verifyUserIsNoLongerOnVideoPreviewScreen() {
+		Assert.assertFalse(videoPreviewPage.isVideoPreviewScreenDisplayed(),
+				"User is still on the video preview screen after confirming to leave");
+	}
+
+	@Then("verify video preview screen content is displayed in khmer language")
+	public void verifyVideoPreviewScreenContentIsDisplayedInKhmerLanguage() {
+		Assert.assertTrue(videoPreviewPage.isDisplayedInLanguage("khm"),
+				"Video preview screen was not displayed in Khmer language");
+	}
+
 }

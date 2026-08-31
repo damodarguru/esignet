@@ -30,6 +30,17 @@ public class SignupFormDynamicFiller {
 	}
 
 	public void fillFormFromUiSpec(Map<String, Map<String, Object>> uiSpecFields) throws Exception {
+		fillFormFromUiSpec(uiSpecFields, false);
+	}
+
+	/**
+	 * @param skipPhotoField true when the face photo has already been attached
+	 *                       through another path (e.g. the fallback file upload
+	 *                       input), so the default camera-capture handling here
+	 *                       should not run again.
+	 */
+	public void fillFormFromUiSpec(Map<String, Map<String, Object>> uiSpecFields, boolean skipPhotoField)
+			throws Exception {
 
 		for (String fieldId : uiSpecFields.keySet()) {
 
@@ -40,13 +51,10 @@ public class SignupFormDynamicFiller {
 				continue;
 			}
 
-			// id/data-field-id may be on the input/select/textarea itself, or on a wrapper
-			// element around it - match either shape rather than assuming one or the other.
-			List<WebElement> matchingElements = driver.findElements(By.xpath(
-					"//*[self::input or self::select or self::textarea][@id='" + fieldId + "' or @data-field-id='"
-							+ fieldId + "']"
-							+ " | //*[@id='" + fieldId + "' or @data-field-id='" + fieldId
-							+ "']//*[self::input or self::select or self::textarea]"));
+			List<WebElement> matchingElements = driver.findElements(
+					By.xpath(
+							"//*[self::input or self::select or self::textarea]" +
+									"[@id='" + fieldId + "' or @data-field-id='" + fieldId + "']"));
 
 			if (matchingElements.isEmpty()) {
 				logger.info("No element found for fieldId: " + fieldId);
@@ -58,6 +66,9 @@ public class SignupFormDynamicFiller {
 			String type = element.getAttribute("type");
 
 			if ("photo".equalsIgnoreCase(controlType)) {
+				if (skipPhotoField) {
+					continue;
+				}
 				signUpPage.clickOnUploadPhoto();
 				signUpPage.clickOnCaptureButton();
 				continue;
@@ -100,22 +111,24 @@ public class SignupFormDynamicFiller {
 					} else if ("khm".equalsIgnoreCase(lang)) {
 						nameField.sendKeys(names.khmer);
 						RegisteredDetails.setFullName(names.khmer);
-					} else if ("ar".equalsIgnoreCase(lang) || "ara".equalsIgnoreCase(lang)) {
-						nameField.sendKeys(names.arabic);
 					}
 				}
 				continue;
 			}
 
-			if ("password".equalsIgnoreCase(controlType)) {
+			if ("password".equalsIgnoreCase(controlType)
+					|| "password".equalsIgnoreCase(fieldId)) {
+
 				String password = EsignetUtil.generateValidPasswordFromActuator();
 				RegisteredDetails.setPassword(password);
+
 				element.clear();
 				element.sendKeys(password);
 
 				WebElement confirmPwd = driver.findElement(By.id("password_confirm"));
 				confirmPwd.clear();
 				confirmPwd.sendKeys(password);
+
 				continue;
 			}
 
@@ -130,20 +143,17 @@ public class SignupFormDynamicFiller {
 				Select dropdown = new Select(element);
 				List<WebElement> options = dropdown.getOptions();
 				if (options.size() > 1) {
-					if (fieldId.toLowerCase().contains("lang") && selectEnglishOption(dropdown, options)) {
-						continue;
-					}
 					dropdown.selectByIndex(new Random().nextInt(options.size() - 1) + 1);
 				}
 				continue;
 			}
 
 			if ("date".equalsIgnoreCase(controlType)) {
-				String dob = EsignetUtil.getRandomDOB();
+				String dob = EsignetUtil.getRandomDOB().replace("-", "/");
 				WebElement visibleDob = element;
-				JavascriptExecutor js = (JavascriptExecutor) driver;
-				js.executeScript("arguments[0].removeAttribute('readonly')", visibleDob);
-				js.executeScript("arguments[0].value=arguments[1];", visibleDob, dob);
+				JavascriptExecutor jsDate = (JavascriptExecutor) driver;
+				jsDate.executeScript("arguments[0].removeAttribute('readonly')", visibleDob);
+				jsDate.executeScript("arguments[0].value=arguments[1];", visibleDob, dob);
 
 				continue;
 			}
@@ -167,9 +177,7 @@ public class SignupFormDynamicFiller {
 						"//input[@type='radio' and (@name='" + fieldId + "' or @data-field-id='" + fieldId + "')]"));
 
 				if (!radios.isEmpty()) {
-					WebElement radio = radios.get(new Random().nextInt(radios.size()));
-					((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({block:'center'});", radio);
-					((JavascriptExecutor) driver).executeScript("arguments[0].click();", radio);
+					radios.get(new Random().nextInt(radios.size())).click();
 				}
 				continue;
 			}
@@ -180,18 +188,6 @@ public class SignupFormDynamicFiller {
 				continue;
 			}
 		}
-	}
-
-	private boolean selectEnglishOption(Select dropdown, List<WebElement> options) {
-		for (WebElement option : options) {
-			String text = option.getText();
-			String value = option.getAttribute("value");
-			if ((text != null && text.toLowerCase().contains("eng")) || (value != null && value.toLowerCase().contains("eng"))) {
-				dropdown.selectByVisibleText(text);
-				return true;
-			}
-		}
-		return false;
 	}
 
 	private void uploadFile(String fieldId, List<WebElement> matchingElements) throws IOException {

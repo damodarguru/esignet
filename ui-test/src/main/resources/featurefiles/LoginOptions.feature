@@ -14,11 +14,11 @@ Feature: Esignet Login Options Page
    Then verify the UI is displayed in selected language "<text>"
    When click on Language selection option
    And select the mandatory language
-   
+
   Examples:
    | other lang | text   |
    | हिंदी        | लॉगिन    |
-   
+
   @mobile @mobileViewFeatures
   Scenario: Verifying the UI in mobile view
    When user triggers the authorization endpoint, the response should have status code 200 and contain valid HTML with JS content
@@ -36,8 +36,8 @@ Feature: Esignet Login Options Page
    And user click on get otp button
    When user enters the correct otp
    And click on verify Otp button
-   
-   
+
+
    @smoke @supportOfPrefixAndPostfix
   Scenario: Verifying support for multiple prefix and postfix type for the individual ID
    When click on Language selection option

@@ -24,24 +24,18 @@ public class MultiLanguagePage extends BasePage {
     }
 
     public void clickOnLanguage() {
-        String langCode = BaseTestUtil.getThreadLocalLanguage();
-        WebElement language = waitForElementVisible(By.xpath("//div[text()='" + LanguageUtil.getDisplayName(langCode) +"']"));
-        clickOnElement(language,"Selected the given language");
+        clickOnLanguage(BaseTestUtil.getThreadLocalLanguage());
+    }
+
+    public void clickOnLanguage(String langCode) {
+        String displayName = LanguageUtil.getDisplayName(langCode);
+        WebElement language = driver.findElement(By.xpath("//div[text()='" + displayName + "']"));
+        clickOnElement(language, "Selected " + displayName + " language");
     }
 
     public String getLanguageFromCookie() {
         JavascriptExecutor js = (JavascriptExecutor) driver;
         return (String) js.executeScript("return window.localStorage.getItem('i18nextLng');");
-    }
-
-    public String getNavigatorLanguage() {
-        JavascriptExecutor js = (JavascriptExecutor) driver;
-        return (String) js.executeScript("return navigator.language || navigator.userLanguage;");
-    }
-
-    public String getDisplayedLanguageSelection() {
-        waitForElementVisible(languageSelection);
-        return languageSelection.getText().trim();
     }
 
 }

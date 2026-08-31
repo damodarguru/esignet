@@ -7,12 +7,9 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -52,11 +49,8 @@ import utils.LanguageUtil;
 
 @RunWith(Cucumber.class)
 @CucumberOptions(
-		features = {
-//				"classpath:featurefiles/ConsentPage.feature"
-				"classpath:featurefiles"
-		},
-		glue = {"stepdefinitions", "base"},
+        features = {"classpath:featurefiles"},
+        glue = {"stepdefinitions", "base"},
         monochrome = true,
         plugin = {"pretty",
                 "html:reports",
@@ -81,7 +75,7 @@ public class Runner extends AbstractTestNGCucumberTests {
 
 		System.setProperty("dataproviderthreadcount", String.valueOf(threadCount));
 
-		Object[][] base = filterByFeatureFiles(super.scenarios());
+		Object[][] base = super.scenarios();
 		boolean runMultipleBrowsers = Boolean.parseBoolean(EsignetConfigManager.getproperty("runMultipleBrowsers"));
 		List<String> browsers = BaseTestUtil.getSupportedLocalBrowsers();
 
@@ -106,51 +100,6 @@ public class Runner extends AbstractTestNGCucumberTests {
 		System.setProperty("testng.threadcount", String.valueOf(EsignetConfigManager.getproperty("threadCount")));
 
 		return fallback.toArray(new Object[0][]);
-	}
-
-	// featureFilesToExecute (config.properties) is a comma-separated list of feature file names
-	// (without .feature extension); empty/unset means run every discovered scenario.
-	private static Object[][] filterByFeatureFiles(Object[][] scenarios) {
-		String featureFilesToExecute = EsignetConfigManager.getproperty("featureFilesToExecute");
-		if (featureFilesToExecute == null || featureFilesToExecute.trim().isEmpty()) {
-			return scenarios;
-		}
-
-		Set<String> requestedFeatures = new HashSet<>();
-		for (String name : featureFilesToExecute.split(",")) {
-			if (!name.trim().isEmpty()) {
-				requestedFeatures.add(name.trim().toLowerCase(Locale.ROOT));
-			}
-		}
-
-		if (requestedFeatures.isEmpty()) {
-			return scenarios;
-		}
-
-		List<Object[]> filtered = new ArrayList<>();
-		for (Object[] scenario : scenarios) {
-			PickleWrapper pickle = (PickleWrapper) scenario[0];
-			String uri = pickle.getPickle().getUri().toString();
-			String fileName = uri.substring(Math.max(uri.lastIndexOf('/'), uri.lastIndexOf('\\')) + 1);
-			if (fileName.toLowerCase(Locale.ROOT).endsWith(".feature")) {
-				fileName = fileName.substring(0, fileName.length() - ".feature".length());
-			}
-			if (requestedFeatures.contains(fileName.toLowerCase(Locale.ROOT))) {
-				filtered.add(scenario);
-			}
-		}
-
-		if (filtered.isEmpty()) {
-			LOGGER.warning("featureFilesToExecute=" + requestedFeatures
-					+ " matched no scenarios out of " + scenarios.length
-					+ " - check for a typo/stale entry; running all scenarios instead of silently running none.");
-			return scenarios;
-		}
-
-		LOGGER.info("featureFilesToExecute=" + requestedFeatures + " selected " + filtered.size() + "/"
-				+ scenarios.length + " scenarios");
-
-		return filtered.toArray(new Object[0][]);
 	}
 
 	@Test(dataProvider = "scenarios")
@@ -185,13 +134,8 @@ public class Runner extends AbstractTestNGCucumberTests {
 			EsignetUtil.getPluginName();
 			suiteSetup(getRunType());
 			setLogLevels();
-			otpListener.run();
 
-			// Populates BaseTestCase.languageList from the app's supported languages - needed by both
-			// plugins (e.g. $1STLANG$ template resolution during OIDC client creation), not just mock.
-			EsignetUtil.getSupportedLanguage();
-
-			if (EsignetUtil.getPluginName().equals("mosipid")) {
+			if (EsignetUtil.pluginName.equals("mosipid")) {
 				KeycloakUserManager.removeUser();
 				KeycloakUserManager.createUsers();
 				KeycloakUserManager.closeKeycloakInstance();
@@ -201,8 +145,13 @@ public class Runner extends AbstractTestNGCucumberTests {
 				AdminTestUtil.createAndPublishPolicy();
 				AdminTestUtil.createEditAndPublishPolicy();
 				PartnerRegistration.deviceGeneration();
+				otpListener.run();
 
 				BiometricDataProvider.generateBiometricTestData("Registration");
+			}
+
+			else if (EsignetUtil.pluginName.equals("mock")) {
+				EsignetUtil.getSupportedLanguage();
 			}
 
 			List<String> languages = new ArrayList<>();
@@ -221,6 +170,8 @@ public class Runner extends AbstractTestNGCucumberTests {
 				LOGGER.info("No runLanguage in config, loading from LanguageUtil");
 				languages = LanguageUtil.supportedLanguages;
 			}
+
+			applyFeatureFileFilter();
 
 			for (String lang : languages) {
 				System.setProperty("currentRunLanguage", lang);
@@ -241,7 +192,7 @@ public class Runner extends AbstractTestNGCucumberTests {
 		}
 		otpListener.bTerminate = true;
 
-		if (EsignetUtil.getPluginName().equals("mosipid")) {
+		if (EsignetUtil.pluginName.equals("mosipid")) {
 			KeycloakUserManager.removeUser();
 		}
 
@@ -256,9 +207,8 @@ public class Runner extends AbstractTestNGCucumberTests {
 			AuthTestsUtil.removeOldMosipTempTestResource();
 		}
 
-		BaseTestCase.currentModule = ESignetConstants.ESIGNETUI_MODULENAME + BaseTestCase.runContext;
-		BaseTestCase.certsForModule = ESignetConstants.ESIGNETUI_MODULENAME + BaseTestCase.runContext;
-		BaseTestCase.initializePMSDetails();
+		BaseTestCase.currentModule = ESignetConstants.ESIGNETUI_MODULENAME;
+		BaseTestCase.certsForModule = ESignetConstants.ESIGNETUI_MODULENAME;
 		AdminTestUtil.copymoduleSpecificAndConfigFile(ESignetConstants.ESIGNETUI_MODULENAME);
 	}
 
@@ -364,6 +314,29 @@ public class Runner extends AbstractTestNGCucumberTests {
 		MispPartnerAndLicenseKeyGeneration.setLogLevel();
 		JWKKeyUtil.setLogLevel();
 		CertsUtil.setLogLevel();
+	}
+
+	public static void applyFeatureFileFilter() {
+		String featureFilesToExecute = EsignetConfigManager.getproperty("featureFilesToExecute");
+		if (featureFilesToExecute == null || featureFilesToExecute.trim().isEmpty()) {
+			LOGGER.info("featureFilesToExecute is empty — running all feature files.");
+			return;
+		}
+
+		String[] names = featureFilesToExecute.split(",");
+		List<String> paths = new ArrayList<>();
+		for (String name : names) {
+			String trimmed = name.trim();
+			if (!trimmed.isEmpty()) {
+				paths.add("classpath:featurefiles/" + trimmed + ".feature");
+			}
+		}
+
+		if (!paths.isEmpty()) {
+			String joined = String.join(",", paths);
+			System.setProperty("cucumber.features", joined);
+			LOGGER.info("cucumber.features set to: " + joined);
+		}
 	}
 
 	public static void updateFeaturesPath() {

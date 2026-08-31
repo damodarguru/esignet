@@ -354,4 +354,53 @@ public class EkycStepDefinition {
 				"User is not redirected back to eKYC terms and condition screen");
 	}
 
+	@Then("user navigates back in the browser from eKYC process steps screen and a leave site prompt should appear")
+	public void userNavigatesBackFromEkycProcessStepsScreenExpectingPrompt() {
+		ekycPage.navigateBackExpectingLeaveSitePrompt();
+	}
+
+	@Then("user refreshes the browser from eKYC process steps screen and a leave site prompt should appear")
+	public void userRefreshesEkycProcessStepsScreenExpectingPrompt() {
+		ekycPage.refreshExpectingLeaveSitePrompt();
+	}
+
+	@Then("user cancels the leave site prompt in eKYC process steps screen")
+	public void userCancelsLeaveSitePromptInEkycProcessStepsScreen() {
+		ekycPage.dismissAlert();
+	}
+
+	@Then("user confirms the leave site prompt in eKYC process steps screen")
+	public void userConfirmsLeaveSitePromptInEkycProcessStepsScreen() {
+		ekycPage.acceptAlert();
+	}
+
+	@Then("verify user is retained on eKYC process steps screen")
+	public void verifyUserIsRetainedOnEkycProcessStepsScreen() {
+		Assert.assertTrue(ekycPage.isEkycProcessStepsScreenLabelDisplayed(),
+				"User is not retained on the eKYC process steps screen after cancelling the leave site prompt");
+	}
+
+	@Then("verify user is no longer on eKYC process steps screen")
+	public void verifyUserIsNoLongerOnEkycProcessStepsScreen() {
+		Assert.assertFalse(ekycPage.isEkycProcessStepsScreenLabelDisplayed(),
+				"User is still on the eKYC process steps screen after confirming to leave");
+	}
+
+	@Then("verify user is redirected to the relying party with the consent not shared error")
+	public void verifyUserIsRedirectedToRelyingPartyWithConsentNotSharedError() {
+		Assert.assertTrue(ekycPage.waitForConsentRejectedRedirect(),
+				"User was not redirected to the relying party with the expected consent-not-shared error message");
+	}
+
+	@Then("verify the authorization failed popup is displayed")
+	public void verifyAuthorizationFailedPopupIsDisplayed() {
+		Assert.assertTrue(ekycPage.isAuthorizationFailedPopupDisplayed(),
+				"'Unable to authorize. Please try again.' popup is not displayed");
+	}
+
+	@Then("user clicks Okay on the authorization failed popup")
+	public void userClicksOkayOnAuthorizationFailedPopup() {
+		ekycPage.clickOkayOnAuthorizationFailedPopup();
+	}
+
 }

@@ -1,27 +1,26 @@
 package pages;
 
+import java.net.URI;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
 import org.openqa.selenium.By;
 import org.openqa.selenium.Keys;
-import org.openqa.selenium.NoSuchElementException;
-import org.openqa.selenium.StaleElementReferenceException;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.FindBy;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import base.BasePage;
+import utils.BaseTestUtil;
 import utils.ClaimsUtil;
+import utils.EsignetConfigManager;
+import utils.LanguageUtil;
 
 public class ConsentPage extends BasePage {
-
-	private static final Logger LOGGER = LoggerFactory.getLogger(ConsentPage.class);
 
 	public ConsentPage(WebDriver driver) {
 		super(driver);
@@ -29,6 +28,18 @@ public class ConsentPage extends BasePage {
 
 	@FindBy(id = "login_with_otp")
 	WebElement loginWithOtpButton;
+
+	@FindBy(xpath = "//img[@class='brand-logo']")
+	WebElement brandLogo;
+
+	@FindBy(xpath = "//img[@class='brand-logo']/following-sibling::img")
+	WebElement esignetLogo;
+
+	@FindBy(xpath = "//*[text()='Network Error!']")
+	WebElement networkErrorHeader;
+
+	@FindBy(xpath = "//*[text()='Please check your internet connection and try again.']")
+	WebElement networkErrorSubHeader;
 
 	@FindBy(id = "language_selection")
 	WebElement languageSelection;
@@ -137,7 +148,6 @@ public class ConsentPage extends BasePage {
 
 	@FindBy(xpath = "//div[@class='inline mx-2 font-semibold my-3']")
 	WebElement selectPreferredIdHeader;
-	
 	@FindBy(xpath = "//div[@class='header my-2']")
 	WebElement headerInConsentUpdateProfileScreen;
 
@@ -168,6 +178,38 @@ public class ConsentPage extends BasePage {
 	@FindBy(xpath = "//span[@class='not-available-claim']")
 	WebElement notAvailableClaimStatus;
 
+	/**
+	 * Locates the "(Verified)"/"(Not Verified)" <em> that ClaimDetails.js
+	 * (oidc-ui) renders as a sibling of the claim's label <span>, keyed off the
+	 * claim's exact display label (e.g. "Email Address" for the email claim -
+	 * see oidc-ui/public/locales/en.json's consentDetails section).
+	 */
+	private WebElement getClaimVerifiedStatusElement(String claimLabel) {
+		return driver.findElement(By.xpath("//label[span[text()='" + claimLabel + "']]/em"));
+	}
+
+	/**
+	 * Confirms the "Consent to Update Profile" screen shows "(Verified)" - not
+	 * "(Not Verified)" - next to the given claim's label.
+	 */
+	public boolean isClaimShownAsVerified(String claimLabel) {
+		WebElement statusElement = getClaimVerifiedStatusElement(claimLabel);
+		waitForElementVisible(statusElement);
+		String text = statusElement.getText().trim();
+		return text.equalsIgnoreCase("(Verified)");
+	}
+
+	/**
+	 * Confirms the "Consent to Update Profile" screen shows "(Not Verified)"
+	 * next to the given claim's label.
+	 */
+	public boolean isClaimShownAsNotVerified(String claimLabel) {
+		WebElement statusElement = getClaimVerifiedStatusElement(claimLabel);
+		waitForElementVisible(statusElement);
+		String text = statusElement.getText().trim();
+		return text.equalsIgnoreCase("(Not Verified)");
+	}
+
 	@FindBy(xpath = "(//p[@class='mb-1'])[1]")
 	WebElement infoIconMeassage;
 
@@ -191,7 +233,6 @@ public class ConsentPage extends BasePage {
 	}
 
 	public void enterRegisteredMobileNumber(String number) {
-		waitForElementVisible(mobileNumberField);
 		mobileNumberField.clear();
 		enterText(mobileNumberField, number, "Entered registered mobile number");
 	}
@@ -201,12 +242,10 @@ public class ConsentPage extends BasePage {
 	}
 
 	public String getCurrentLanguage() {
-		waitForElementVisible(languageSelection);
 		return languageSelection.getText().trim();
 	}
 
 	public void enterOtp(String otp) {
-		waitForElementVisible(By.xpath("//div[@class='pincode-input-container']/input"));
 		if (otp.length() > otpInputFields.size()) {
 			throw new IllegalArgumentException(
 					"OTP length " + otp.length() + " exceeds rendered inputs " + otpInputFields.size());
@@ -228,8 +267,7 @@ public class ConsentPage extends BasePage {
 	}
 
 	public boolean isOnAttentionScreen() {
-		waitForElementVisible(proceedToAttentionScreen);
-		return proceedToAttentionScreen.isDisplayed();
+		return isElementVisible(proceedToAttentionScreen, "Verified user is on attention screen");
 	}
 
 	public void clickOnProceedButtonInAttentionPage() {
@@ -237,26 +275,29 @@ public class ConsentPage extends BasePage {
 	}
 
 	public void clickOnProceedButton() {
-		clickWhenClickable(proceedButton);
+		clickOnElement(proceedButton, "Clicked on proceed button");
 	}
 
 	public void clickOnMockIdentifyVerifier() {
 		clickOnElement(eKycServiceProvider, "Selected the ekyc provider");
 	}
 
+	public boolean isOnEkycProviderListScreen() {
+		return isElementVisible(eKycServiceProvider, "Verified user is on the eKYC provider list screen");
+	}
+
 	public void clickOnProceedButtonInServiceProviderPage() {
-		clickWhenClickable(proceedButtonInServiceProviderPage);
+		clickOnElement(proceedButtonInServiceProviderPage, "clicked on proceed button in ekyc screen");
 	}
 
 	public void checkTermsAndCondition() {
-		waitForElementVisible(termsAndConditionCheckBox);
 		if (!termsAndConditionCheckBox.isSelected()) {
 			clickOnElement(termsAndConditionCheckBox, "Selected the terms and condition checkbox");
 		}
 	}
 
 	public void clickOnProceedButtonInTermsAndConditionPage() {
-		clickWhenClickable(proceedBtnInTandCPage);
+		clickOnElement(proceedBtnInTandCPage, "Clicked on proceed button in terms and condition screen");
 	}
 
 	public void clickOnProceedButtonInCameraPreviewPage() {
@@ -264,42 +305,19 @@ public class ConsentPage extends BasePage {
 	}
 
 	public void waitUntilLivenessCheckCompletes() {
-		WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(240));
-		wait.pollingEvery(Duration.ofSeconds(2));
-		wait.ignoring(NoSuchElementException.class, StaleElementReferenceException.class);
+		WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(120));
+		wait.until(ExpectedConditions.visibilityOf(allowButtonInConsentScreen));
+	}
 
-		wait.until(driverInstance -> {
-			// Signup's "Verification Unsuccessful!" screen - this button renders only on failure.
-			List<WebElement> verificationFailed = driverInstance.findElements(By.id("success-continue-button"));
-			if (!verificationFailed.isEmpty() && verificationFailed.get(0).isDisplayed()) {
-				throw new IllegalStateException("eKYC identity verification failed: signup reported "
-						+ "'Verification Unsuccessful!' on the identity verification status screen");
-			}
-
-			// Signup's other failure paths redirect back to eSignet carrying an error query param.
-			String currentUrl = driverInstance.getCurrentUrl();
-			if (currentUrl != null && currentUrl.contains("error=")) {
-				throw new IllegalStateException(
-						"eKYC identity verification failed; redirected back with error: " + currentUrl);
-			}
-
-			List<WebElement> consentAllowButton = driverInstance.findElements(By.id("continue"));
-			return !consentAllowButton.isEmpty() && consentAllowButton.get(0).isDisplayed();
-		});
+	private void clickWhenClickable(WebElement element) {
+		WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(30));
+		WebElement stableElement = wait
+				.until(ExpectedConditions.refreshed(ExpectedConditions.elementToBeClickable(element)));
+		stableElement.click();
 	}
 
 	public boolean isConsentScreenVisible() {
 		return isElementVisible(allowButton, "Verified is navigated to consent scrren");
-	}
-
-	public boolean isOnAttentionScreen(int timeoutSeconds) {
-		try {
-			new WebDriverWait(driver, Duration.ofSeconds(timeoutSeconds))
-					.until(ExpectedConditions.visibilityOfElementLocated(By.id("proceed-button")));
-			return true;
-		} catch (org.openqa.selenium.TimeoutException e) {
-			return false;
-		}
 	}
 
 	public boolean isVoluntaryClaimsMasterToggleVisible() {
@@ -316,7 +334,6 @@ public class ConsentPage extends BasePage {
 	}
 
 	public void enableVoluntaryClaimsMasterToggle() {
-		waitForElementVisible(voluntaryClaimsMasterToggle);
 		if (!voluntaryClaimsMasterToggle.isSelected()) {
 			clickOnElement(voluntaryClaimsMasterToggle, "Enabled the voluntary claims master toggle button");
 		}
@@ -327,7 +344,6 @@ public class ConsentPage extends BasePage {
 	}
 
 	public boolean isVoluntaryClaimsMasterToggleSelected() {
-		waitForElementVisible(voluntaryClaimsMasterToggle);
 		return voluntaryClaimsMasterCheckbox.isSelected();
 	}
 
@@ -339,7 +355,7 @@ public class ConsentPage extends BasePage {
 		String normalized = ClaimsUtil.normalizeClaim(claimName);
 		By labelLocator = By.xpath("//label[@for='" + normalized + "']");
 		By inputLocator = By.id(normalized);
-		WebElement label = waitForElementVisible(labelLocator);
+		WebElement label = driver.findElement(labelLocator);
 		WebElement checkbox = driver.findElement(inputLocator);
 		if (checkbox.isSelected() != enable) {
 			label.click();
@@ -358,109 +374,44 @@ public class ConsentPage extends BasePage {
 		clickOnElement(allowButtonInConsentScreen, "Clicked on allow button in consent screen");
 	}
 
-	public void enterVid(String vid) {
-		WebElement vidField = waitForElementVisible(By.id("Otp_vid"));
-		vidField.clear();
-		enterText(vidField, vid, "Entered vid in vid field");
+	public boolean isRedirectedToRelyingPartyLandingPage() {
+		String relyingPartyHost = URI.create(EsignetConfigManager.getproperty("baseurl")).getHost();
+		String currentHost = URI.create(driver.getCurrentUrl()).getHost();
+		return relyingPartyHost.equalsIgnoreCase(currentHost);
 	}
 
-	public boolean isAttentionScreenDisplayedNow() {
-		List<WebElement> attentionHeaders = driver.findElements(By.id("navbar-header"));
-		return !attentionHeaders.isEmpty() && attentionHeaders.get(0).isDisplayed();
+	private static final String PREPARE_SIGNUP_REDIRECT_ENDPOINT = "prepare-signup-redirect";
+	private static final String RESPONSE_TIMEOUT_ERROR_CODE = "IDA-RST-008";
+	private static final String RESPONSE_TIMEOUT_MESSAGE = "The request took too long to process. Please try again later.";
+	private static final Duration RELYING_PARTY_REDIRECT_WAIT = Duration.ofSeconds(30);
+
+	/**
+	 * Mocks the API call fired when clicking Proceed on the "Consent to Update
+	 * Profile" (Attention) screen, so it fails with the backend's documented
+	 * response-timeout error code instead of depending on an actual slow/hanging
+	 * backend. Must be called before that Proceed click.
+	 */
+	public void mockPrepareSignupRedirectAsResponseTimeout() {
+		String jsonBody = "{\"responseTime\":\"" + Instant.now() + "\",\"response\":null,\"errors\":[{\"errorCode\":\""
+				+ RESPONSE_TIMEOUT_ERROR_CODE + "\",\"errorMessage\":\"Request timed out\"}]}";
+		BaseTestUtil.mockApiErrorResponse(driver, PREPARE_SIGNUP_REDIRECT_ENDPOINT, 200, jsonBody);
 	}
 
-	public boolean isConsentScreenDisplayedNow() {
-		List<WebElement> timers = driver.findElements(By.xpath("//p[@class='font-bold consent-timer-text']"));
-		return !timers.isEmpty() && timers.get(0).isDisplayed();
-	}
-
-	public void waitForRelyingPartyRedirect() {
-		WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(60));
-		wait.until(ExpectedConditions.visibilityOfElementLocated(By.id("sign-in-with-esignet")));
-	}
-
-	public void assertAuthenticationCompletedWithoutConsent() {
-		WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(60));
-		wait.pollingEvery(Duration.ofMillis(500));
-		wait.until(driverInstance -> {
-			if (isAttentionScreenDisplayedNow()) {
-				throw new AssertionError("Attention screen was displayed when consent should be skipped");
-			}
-			if (isConsentScreenDisplayedNow()) {
-				throw new AssertionError("Consent screen was displayed when consent should be skipped");
-			}
-			String url = driverInstance.getCurrentUrl();
-			return url != null && !url.contains("/authorize") && !url.contains("esignet");
-		});
-	}
-
-	public void completeConsentFlowThroughEkyc() {
-		clickOnProceedButtonInAttentionPage();
-		clickOnProceedButton();
-		clickOnMockIdentifyVerifier();
-		clickOnProceedButtonInServiceProviderPage();
-		checkTermsAndCondition();
-		clickOnProceedButtonInTermsAndConditionPage();
-		clickOnProceedButtonInCameraPreviewPage();
-		waitUntilLivenessCheckCompletes();
-		clickOnAllowBtnInConsentScreen();
-		waitForRelyingPartyRedirect();
-	}
-
-	public void completeConsentFlowThroughEkycIfAttentionScreenIsDisplayed() {
-		if (isAttentionScreenDisplayedNow()) {
-			completeConsentFlowThroughEkyc();
+	/**
+	 * Confirms the app redirected back to the relying party carrying the mocked
+	 * response-timeout error, with the relying party's own rendition of that
+	 * error message on screen - mirrors LivenessCheckPage.waitForRedirectWithVerificationIncompleteError().
+	 */
+	public boolean isResponseTimeoutErrorDisplayedOnRelyingParty() {
+		WebDriverWait wait = new WebDriverWait(driver, RELYING_PARTY_REDIRECT_WAIT);
+		try {
+			wait.until(d -> d.getCurrentUrl().contains("error=" + RESPONSE_TIMEOUT_ERROR_CODE));
+		} catch (org.openqa.selenium.TimeoutException e) {
+			return false;
 		}
-	}
 
-	public void waitUntilConsentScreenAfterAuthentication() {
-		WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(60));
-		wait.pollingEvery(Duration.ofSeconds(1));
-		wait.ignoring(NoSuchElementException.class, StaleElementReferenceException.class);
-		wait.until(driverInstance -> {
-			String currentUrl = driverInstance.getCurrentUrl();
-			if (currentUrl != null && currentUrl.contains("error=")) {
-				throw new IllegalStateException("Authentication failed; redirected back with error: " + currentUrl);
-			}
-			return currentUrl != null && (currentUrl.contains("/consent") || isConsentScreenVisible());
-		});
-	}
-
-	public boolean isAuthorizeScopeSectionDisplayed() {
-		return !driver.findElements(By.id("authorize_scope_tooltip")).isEmpty();
-	}
-
-	public boolean isAuthorizeScopeDisplayed(String scopeName) {
-		List<WebElement> scopeToggles = driver.findElements(By.id(scopeName));
-		return !scopeToggles.isEmpty() && scopeToggles.get(0).isDisplayed();
-	}
-
-	public void toggleAuthorizeScope(String scopeName, boolean enable) {
-		WebElement toggle = driver.findElement(By.id(scopeName));
-		if (toggle.isSelected() != enable) {
-			WebElement label = driver.findElement(By.cssSelector("label[for='" + scopeName + "']"));
-			clickOnElement(label, "Toggled authorize scope " + scopeName + " to " + enable);
-		}
-	}
-
-	public boolean areClaimSectionsAbsent() {
-		return driver.findElements(By.id("essential_claims_tooltip")).isEmpty()
-				&& driver.findElements(By.id("voluntary_claims_tooltip")).isEmpty();
-	}
-
-	public void waitUntilUserProfilePage() {
-		WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(30));
-		wait.until(driverInstance -> isUserProfilePageDisplayed());
-		String currentUrl = driver.getCurrentUrl();
-		String sanitizedUrl = currentUrl != null && currentUrl.contains("?")
-				? currentUrl.substring(0, currentUrl.indexOf('?'))
-				: currentUrl;
-		LOGGER.info("Navigated to user profile page: {}", sanitizedUrl);
-	}
-
-	public boolean isUserProfilePageDisplayed() {
-		String currentUrl = driver.getCurrentUrl();
-		return currentUrl != null && currentUrl.contains("userprofile") && currentUrl.contains("code=");
+		String pageText = driver.findElement(By.tagName("body")).getText();
+		return pageText.contains(RESPONSE_TIMEOUT_MESSAGE);
 	}
 
 	public boolean isLanguageDropdownDisplayed() {
@@ -475,6 +426,12 @@ public class ConsentPage extends BasePage {
 		clickOnElement(arabicLanguage, "Selected arabic language from dropdown");
 	}
 
+	public void selectLanguage(String langCode) {
+		String displayName = LanguageUtil.getDisplayName(langCode);
+		WebElement language = driver.findElement(By.xpath("//div[text()='" + displayName + "']"));
+		clickOnElement(language, "Selected " + displayName + " language");
+	}
+
 	public String getPageDirection() {
 		WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(15));
 		wait.until(ExpectedConditions.attributeToBe(rootContainer, "dir", "rtl"));
@@ -482,18 +439,34 @@ public class ConsentPage extends BasePage {
 	}
 
 	public int getConsentTimerSeconds() {
-		waitForElementVisible(consentTimer);
-		// Confirmed on both plugins: the timer always starts at 55 seconds and never crosses a
-		// minute boundary, so this intentionally reads only the seconds portion - do not "fix" this
-		// into a minutes*60+seconds calculation.
 		String timerValue = consentTimer.getText().trim();
 		String secondsPart = timerValue.split(":")[1];
 		int seconds = Integer.parseInt(secondsPart);
 		return seconds;
 	}
 
+	private static final String TRANSACTION_TIMEOUT_ERROR_CODE = "transaction_timeout";
+	private static final Duration CONSENT_TRANSACTION_TIMEOUT_WAIT = Duration.ofSeconds(75);
+
+	/**
+	 * The consent screen timer (~55s, per the existing 55sec-start check) is
+	 * client-side (Consent.js): once it hits zero it automatically fires
+	 * redirectOnError('transaction_timeout', ...) and navigates away - no Allow
+	 * click is needed or possible by that point, since the redirect has already
+	 * happened. This waits out that real timer rather than trying to force a
+	 * click race against it.
+	 */
+	public boolean waitForTransactionTimeoutRedirect() {
+		WebDriverWait wait = new WebDriverWait(driver, CONSENT_TRANSACTION_TIMEOUT_WAIT);
+		try {
+			wait.until(d -> d.getCurrentUrl().contains("error=" + TRANSACTION_TIMEOUT_ERROR_CODE));
+		} catch (org.openqa.selenium.TimeoutException e) {
+			return false;
+		}
+		return isRedirectedToRelyingPartyLandingPage();
+	}
+
 	public String getSelectedLanguageFromDropdown() {
-		waitForElementVisible(selectedLanguageDropdown);
 		return selectedLanguageDropdown.getText().trim();
 	}
 
@@ -527,6 +500,33 @@ public class ConsentPage extends BasePage {
 		return isElementVisible(actionMessage, "Verified action message is displayed");
 	}
 
+	public String getActionMessageText() {
+		return actionMessage.getText().trim();
+	}
+
+	public String getBrandLogoAltText() {
+		return brandLogo.getAttribute("alt");
+	}
+
+	public String getEsignetLogoAltText() {
+		return esignetLogo.getAttribute("alt");
+	}
+
+	public boolean isNetworkErrorScreenDisplayed() {
+		return isElementVisible(networkErrorHeader, "Verified network error header is displayed")
+				&& isElementVisible(networkErrorSubHeader, "Verified network error subheader is displayed");
+	}
+
+	/**
+	 * Fast, non-waiting presence check for the "should NOT be displayed" case -
+	 * unlike isLanguageDropdownDisplayed() (which waits for visibility and is
+	 * meant for the positive case), this returns false immediately instead of
+	 * blocking for the full timeout when the element genuinely isn't there.
+	 */
+	public boolean isLanguageSelectionElementPresent() {
+		return isElementDisplayed(languageSelection);
+	}
+
 	public boolean isTimerDisplayed() {
 		return isElementVisible(consentTimer, "Verified timer is displayed");
 	}
@@ -535,59 +535,31 @@ public class ConsentPage extends BasePage {
 		return isButtonEnabled(verifyOtpButton, "Verified otp verification button is enabled");
 	}
 
-	/**
-	 * The purpose-type scenarios assert on this button as their first step, so the /authorize page
-	 * may still be resolving oauth-details (showing its loading spinner) when this runs. Wait for
-	 * the button to render before reading its text, otherwise the check races the page load and
-	 * fails intermittently in a full suite run while passing in isolation.
-	 */
 	public boolean isLoginWithOtpDisplayed(String expectedText) {
-		try {
-			waitForElementVisible(loginWithOtpButton);
-		} catch (Exception e) {
-			LOGGER.warn("Login with OTP button not visible or timed out", e);
-			return false;
-		}
-		return loginWithOtpButton.getText().trim().startsWith(expectedText);
+		return isElementDisplayed(loginWithOtpButton) && loginWithOtpButton.getText().trim().startsWith(expectedText);
 	}
 
 	public boolean isLoginTitleDisplayed() {
-		waitForElementVisible(loginWithOtpButton);
 		return isElementDisplayed(loginTitle);
 	}
 
 	public boolean isLoginSubTitleDisplayed() {
-		waitForElementVisible(loginWithOtpButton);
 		return isElementDisplayed(loginSubTitle);
 	}
 
 	public String getLoginTitleText() {
-		waitForElementVisible(loginTitle);
 		return loginTitle.getText().trim();
 	}
 
 	public String getLoginSubTitleText() {
-		waitForElementVisible(loginSubTitle);
 		return loginSubTitle.getText().trim();
 	}
 
-	public boolean waitForLoginSubTitleToContain(String expectedSubstring) {
-		try {
-			new WebDriverWait(driver, Duration.ofSeconds(15))
-					.until(ExpectedConditions.textToBePresentInElement(loginSubTitle, expectedSubstring));
-			return true;
-		} catch (Exception e) {
-			return false;
-		}
-	}
-
 	public String getSelectPreferredModeHeaderText() {
-		waitForElementVisible(selectPreferredModeHeader);
 		return selectPreferredModeHeader.getText().trim();
 	}
 
 	public String getSelectPreferredIdHeaderText() {
-		waitForElementVisible(selectPreferredIdHeader);
 		return selectPreferredIdHeader.getText().trim();
 	}
 

@@ -13,10 +13,6 @@ import java.util.Base64;
 
 public class ClaimsUtil {
 
-	private static String emptyToNull(String value) {
-		return (value == null || value.isBlank()) ? null : value;
-	}
-
 	private static JSONObject root;
 	private static final Logger logger = Logger.getLogger(ClaimsUtil.class);
 
@@ -100,62 +96,6 @@ public class ClaimsUtil {
 		return normalized;
 	}
 
-	public static List<String> getAuthFactors() {
-		if (root == null)
-			return Collections.emptyList();
-		List<String> factors = new ArrayList<>();
-		JSONArray groups = root.optJSONArray("authFactors");
-		if (groups != null) {
-			for (int i = 0; i < groups.length(); i++) {
-				JSONArray group = groups.optJSONArray(i);
-				if (group != null && group.length() > 0) {
-					JSONObject obj = group.optJSONObject(0);
-					if (obj != null)
-						factors.add(obj.optString("type"));
-				}
-			}
-		}
-		return factors;
-	}
-
-	/** The 'configs' object from the currently parsed transaction, or null. */
-	public static JSONObject getConfigs() {
-		return root != null ? root.optJSONObject("configs") : null;
-	}
-
-	public static String normalizeFactor(String factor) {
-
-		switch (factor) {
-		case "OTP":
-		case "mosip:idp:acr:generated-code":
-			return "OTP";
-
-		case "BIO":
-		case "mosip:idp:acr:biometrics":
-			return "BIO";
-
-		case "WLA":
-		case "mosip:idp:acr:linked-wallet":
-			return "WLA";
-
-		case "PWD":
-		case "mosip:idp:acr:password":
-			return "PWD";
-
-		case "KBI":
-		case "mosip:idp:acr:knowledge":
-			return "KBI";
-
-		default:
-			return factor;
-		}
-	}
-
-	public static String getPostfixForLoginIdOption(String optionId) {
-		JSONObject option = getLoginIdOption(optionId);
-		return option == null ? null : option.optString("postfix", null);
-	}
-
 	private static JSONObject getLoginIdOption(String optionId) {
 		if (root == null)
 			return null;
@@ -174,12 +114,20 @@ public class ClaimsUtil {
 		return null;
 	}
 
-	public static String getEffectiveMaxLength(String optionId, String prefixLabel) {
-		String prefixMaxLength = getPrefixMaxLength(optionId, prefixLabel);
-		if (prefixMaxLength != null) {
-			return prefixMaxLength;
-		}
-		return getOuterMaxLengthForLoginIdOption(optionId);
+	private static String emptyToNull(String value) {
+		return (value == null || value.isBlank()) ? null : value;
+	}
+
+	/**
+	 * Reads the configured postfix for a login-id option (e.g. "mobile" ->
+	 * "@phone") from the authorize URL's decoded config. This is the same
+	 * config value oidc-ui's Password.js uses to build the submitted ID
+	 * (`prefix + id + postfix`, see its buildLoginId-style logic), so this
+	 * checks the actual source of truth rather than inferring it from the UI.
+	 */
+	public static String getPostfixForLoginIdOption(String optionId) {
+		JSONObject option = getLoginIdOption(optionId);
+		return option == null ? null : option.optString("postfix", null);
 	}
 
 	/** The login-id option's own (outer-scope) maxLength, or null if unset/blank. */
@@ -203,5 +151,61 @@ public class ClaimsUtil {
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * Mirrors oidc-ui's InputWithPrefix.js precedence exactly:
+	 * {@code prefix.maxLength || outerMaxLength || null} - the prefix's own
+	 * maxLength wins if set, otherwise the outer (login-id-level) maxLength
+	 * applies, otherwise there's no limit at all.
+	 */
+	public static String getEffectiveMaxLength(String optionId, String prefixLabel) {
+		String prefixMaxLength = getPrefixMaxLength(optionId, prefixLabel);
+		if (prefixMaxLength != null) {
+			return prefixMaxLength;
+		}
+		return getOuterMaxLengthForLoginIdOption(optionId);
+	}
+
+	public static List<String> getAuthFactors() {
+		if (root == null)
+			return Collections.emptyList();
+		List<String> factors = new ArrayList<>();
+		JSONArray groups = root.optJSONArray("authFactors");
+		if (groups != null) {
+			for (int i = 0; i < groups.length(); i++) {
+				JSONArray group = groups.optJSONArray(i);
+				if (group != null && group.length() > 0) {
+					JSONObject obj = group.optJSONObject(0);
+					if (obj != null)
+						factors.add(obj.optString("type"));
+				}
+			}
+		}
+		return factors;
+	}
+
+	public static String normalizeFactor(String factor) {
+
+		switch (factor) {
+		case "OTP":
+		case "mosip:idp:acr:generated-code":
+			return "OTP";
+
+		case "BIO":
+		case "mosip:idp:acr:biometrics":
+			return "BIO";
+
+		case "WLA":
+		case "mosip:idp:acr:linked-wallet":
+			return "WLA";
+
+		case "PWD":
+		case "mosip:idp:acr:password":
+			return "PWD";
+
+		default:
+			return factor;
+		}
 	}
 }

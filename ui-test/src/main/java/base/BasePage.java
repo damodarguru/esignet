@@ -18,7 +18,6 @@ import org.openqa.selenium.NoAlertPresentException;
 import org.openqa.selenium.NoSuchElementException;
 import org.openqa.selenium.OutputType;
 import org.openqa.selenium.TakesScreenshot;
-import org.openqa.selenium.TimeoutException;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.interactions.Actions;
@@ -32,6 +31,7 @@ import com.aventstack.extentreports.Status;
 import utils.ClaimsUtil;
 import utils.EsignetConfigManager;
 import utils.ExtentReportManager;
+import utils.NetworkUtil;
 import utils.WaitUtil;
 
 public class BasePage {
@@ -87,11 +87,6 @@ public class BasePage {
 		WaitUtil.waitForVisibility(driver, element);
 	}
 
-	public WebElement waitForElementVisible(By locator) {
-		WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(EsignetConfigManager.getTimeout()));
-		return wait.until(ExpectedConditions.visibilityOfElementLocated(locator));
-	}
-
 	public void clickOnElement(WebElement element, String stepDesc) {
 		try {
 			waitForElementVisible(element);
@@ -106,21 +101,12 @@ public class BasePage {
 		}
 	}
 
-	// Use instead of clickOnElement() when the button sits behind a page transition/loading
-	// overlay - waits for the element to be visible AND interactable, not just present in the DOM.
-	public void clickWhenClickable(WebElement element) {
-		WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(30));
-		WebElement stableElement = wait
-				.until(ExpectedConditions.refreshed(ExpectedConditions.elementToBeClickable(element)));
-		stableElement.click();
-	}
-
 	public boolean isElementVisible(WebElement element, String stepDesc) {
 		try {
 			waitForElementVisible(element);
 			logStep(stepDesc + " - Verified visibility", element);
 			return element.isDisplayed();
-		} catch (NoSuchElementException | TimeoutException e) {
+		} catch (NoSuchElementException e) {
 			LOGGER.warn("Element not visible: {}", element);
 			ExtentReportManager.getTest().log(Status.WARNING, "Element not visible: " + describeElement(element));
 			return false;
@@ -237,6 +223,29 @@ public class BasePage {
 			alert.dismiss();
 		} catch (NoAlertPresentException e) {
 			LOGGER.warn("No alert found to dismiss.");
+		}
+	}
+
+	/**
+	 * With a beforeunload handler registered, the page hasn't actually started
+	 * unloading while the native "Leave site?" dialog is open - so the refresh
+	 * command itself can time out waiting for a load that hasn't begun. That
+	 * timeout is expected here; the dialog is handled explicitly afterwards via
+	 * acceptAlert()/dismissAlert().
+	 */
+	public void refreshExpectingLeaveSitePrompt() {
+		try {
+			driver.navigate().refresh();
+		} catch (Exception e) {
+			LOGGER.info("Refresh blocked pending the leave-site prompt (expected): {}", e.getMessage());
+		}
+	}
+
+	public void navigateBackExpectingLeaveSitePrompt() {
+		try {
+			driver.navigate().back();
+		} catch (Exception e) {
+			LOGGER.info("Back navigation blocked pending the leave-site prompt (expected): {}", e.getMessage());
 		}
 	}
 
@@ -362,6 +371,26 @@ public class BasePage {
 		} catch (Exception e) {
 			return false;
 		}
+	}
+
+	/**
+	 * Proxy for "the browser would show a permission prompt": the native
+	 * permission bubble itself isn't reachable via WebDriver, so this checks
+	 * the underlying permission state Chrome exposes to the page instead.
+	 */
+	public void setNetworkOffline(boolean offline) {
+		NetworkUtil.setNetworkOffline(driver, offline);
+	}
+
+	public void setUserAgentOverride(String userAgent) {
+		NetworkUtil.setUserAgentOverride(driver, userAgent);
+	}
+
+	public String getCameraPermissionState() {
+		JavascriptExecutor js = (JavascriptExecutor) driver;
+		Object state = js.executeAsyncScript("var callback = arguments[arguments.length - 1];"
+				+ "navigator.permissions.query({name: 'camera'}).then(function(status) { callback(status.state); });");
+		return String.valueOf(state);
 	}
 
 	public String getTooltipText(By iconLocator, By tooltipLocator) {

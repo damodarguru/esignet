@@ -2,11 +2,12 @@ package pages;
 
 import java.time.Duration;
 
+import org.openqa.selenium.By;
+import org.openqa.selenium.TimeoutException;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.FindBy;
 import org.openqa.selenium.support.PageFactory;
-import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
 import base.BasePage;
@@ -20,6 +21,21 @@ public class EkycPage extends BasePage {
 
 	@FindBy(id = "tnc-header")
 	WebElement ekycProcessStepsScreenLabel;
+
+	/**
+	 * Not confirmed against the real DOM - a full reload wipes this app's
+	 * in-memory transaction state, which is expected to surface as this
+	 * generic authorization-failure popup before the eventual redirect to the
+	 * relying party (as opposed to browser back, where bfcache may preserve
+	 * enough state to skip straight to that redirect - see
+	 * waitForConsentRejectedRedirect). Text matches oidc-ui's locale file
+	 * exactly (lowercase "authorize", not "Authorize").
+	 */
+	@FindBy(xpath = "//*[contains(text(),'Unable to authorize. Please try again.')]")
+	WebElement authorizationFailedMessage;
+
+	@FindBy(xpath = "//button[normalize-space(text())='Okay' or normalize-space(text())='OK']")
+	WebElement authorizationFailedOkayButton;
 
 	@FindBy(id = "step-label-0")
 	WebElement eKycStep1Title;
@@ -127,10 +143,45 @@ public class EkycPage extends BasePage {
 	WebElement eKycTermsAndConditionsProceedButton;
 
 	public boolean isEkycProcessStepsScreenLabelDisplayed() {
-		// The attention-page-to-eKYC-screen transition can take longer than the default explicit
-		// wait timeout under backend load, so this waits longer before the usual visibility check.
-		new WebDriverWait(driver, Duration.ofSeconds(30)).until(ExpectedConditions.visibilityOf(ekycProcessStepsScreenLabel));
 		return isElementVisible(ekycProcessStepsScreenLabel, "Verified eKyc screen is displayed");
+	}
+
+	// Curly right-single-quote (’), matching the literal character used in
+	// oidc-ui's en.json ("consent_details_rejected"/"consent_request_rejected"),
+	// not a straight apostrophe - an exact-text match would otherwise silently
+	// fail against the real rendered copy.
+	private static final String CONSENT_REJECTED_MESSAGE = "We’re sorry! Your login was unsuccessful as consent was not shared.";
+	private static final Duration RELYING_PARTY_REDIRECT_WAIT = Duration.ofSeconds(30);
+
+	/**
+	 * Confirms the redirect back to the relying party after abandoning the
+	 * eKYC process steps screen (e.g. via browser back + confirming the leave
+	 * site prompt) carries the "consent not shared" message. Doesn't pin an
+	 * exact error=<code> URL param, since oidc-ui's locale file maps two
+	 * different error codes ("consent_details_rejected" and
+	 * "consent_request_rejected") to this identical message and it isn't
+	 * confirmed which one this specific abandonment path actually triggers -
+	 * checking the rendered message text directly is the more robust check.
+	 */
+	public boolean waitForConsentRejectedRedirect() {
+		WebDriverWait wait = new WebDriverWait(driver, RELYING_PARTY_REDIRECT_WAIT);
+		try {
+			wait.until(d -> d.getCurrentUrl().contains("error="));
+		} catch (TimeoutException e) {
+			return false;
+		}
+
+		String pageText = driver.findElement(By.tagName("body")).getText();
+		return pageText.contains(CONSENT_REJECTED_MESSAGE);
+	}
+
+	public boolean isAuthorizationFailedPopupDisplayed() {
+		return isElementVisible(authorizationFailedMessage,
+				"Verified 'Unable to authorize. Please try again.' popup is displayed");
+	}
+
+	public void clickOkayOnAuthorizationFailedPopup() {
+		clickOnElement(authorizationFailedOkayButton, "Clicked Okay on the authorization failed popup");
 	}
 
 	public boolean isEkycStep1TitleChooseEkycProviderDisplayed() {
@@ -211,7 +262,7 @@ public class EkycPage extends BasePage {
 	}
 
 	public void clickOnSignInWithEsignetButton() {
-		clickWhenClickable(signInWithEsignetButton);
+		clickOnElement(signInWithEsignetButton, "Clicked on sign in with eSignet button");
 	}
 
 	public boolean isProceedButtonVisible() {
@@ -219,7 +270,7 @@ public class EkycPage extends BasePage {
 	}
 
 	public void clickOnProceedButton() {
-		clickWhenClickable(proceedButton);
+		clickOnElement(proceedButton, "Clicked on proceed button");
 	}
 
 	public boolean isEkycServiceProviderScreenVisible() {
@@ -287,7 +338,7 @@ public class EkycPage extends BasePage {
 	}
 
 	public void clickOnProceedButtonInEkycProviderScreen() {
-		clickWhenClickable(ekycProviderProceedButton);
+		clickOnElement(ekycProviderProceedButton, "Clicked on proceed button");
 	}
 
 	public boolean isEkycTermsAndConditionsScreenVisible() {
@@ -314,7 +365,6 @@ public class EkycPage extends BasePage {
 	}
 
 	public boolean isTermsAndConditionCheckboxNotSelected() {
-		waitForElementVisible(ekycTermsAndConditionsCheckbox);
 		return !ekycTermsAndConditionsCheckbox.isSelected() && isElementVisible(ekycTermsAndConditionsCheckbox,
 				"Verified terms and conditions checkbox is not selected by default");
 	}

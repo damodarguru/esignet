@@ -48,6 +48,7 @@ import utils.BrowserStackLocalManager;
 import utils.EsignetConfigManager;
 import utils.EsignetUtil;
 import utils.ExtentReportManager;
+import utils.NetworkUtil;
 import utils.ScreenshotUtil;
 import utils.UINManager;
 import utils.VIDManager;
@@ -83,12 +84,6 @@ public class BaseTest extends AdminTestUtil {
 		}
 	}
 
-	/** Scenarios carrying this tag exercise the PAR flow against a client that mandates PAR. */
-	private static final String PAR_TAG = "@PAR";
-
-	/** Scenarios carrying this tag launch /authorize without claims and with authorize scopes only. */
-	private static final String AUTHORIZE_SCOPE_ONLY_TAG = "@AuthorizeScopeOnly";
-
 	private static final Map<String, String[]> CLIENT_CONFIG_MAP = new HashMap<>();
 
 	static {
@@ -99,10 +94,6 @@ public class BaseTest extends AdminTestUtil {
 		CLIENT_CONFIG_MAP.put("@PurposeLink",
 				new String[] { "$ID:CreateOIDCClient_with_purpose_type_link_Smoke_sid_clientId$",
 						"$CLIENT_ASSERTION_PAR_JWT_PURPOSE_LINK$" });
-
-		CLIENT_CONFIG_MAP.put("@PurposeVerify",
-				new String[] { "$ID:CreateOIDCClient_with_purpose_type_verify_Smoke_sid_clientId$",
-						"$CLIENT_ASSERTION_PAR_JWT_PURPOSE_VERIFY$" });
 
 		CLIENT_CONFIG_MAP.put("@PurposeNone",
 				new String[] { "$ID:CreateOIDCClient_with_purpose_type_none_Smoke_sid_clientId$",
@@ -123,8 +114,9 @@ public class BaseTest extends AdminTestUtil {
 				new String[] { "$ID:CreateOIDCClient_with_single_auth_factor_Smoke_sid_clientId$",
 						"$CLIENT_ASSERTION_PAR_JWT_SINGLE_ACR_VALUE$" });
 
-		CLIENT_CONFIG_MAP.put(PAR_TAG, new String[] { "$ID:CreateOIDCClient_par_required_Smoke_sid_clientId$",
-				"$CLIENT_ASSERTION_PAR_JWT_PAR_REQUIRED$" });
+		CLIENT_CONFIG_MAP.put("@UpdatedTitleAndSubTitle",
+				new String[] { "$ID:CreateOIDCClient_with_updated_title_and_subtitle_Smoke_sid_clientId$",
+						"$CLIENT_ASSERTION_PAR_JWT_UPDATED_TITLE$" });
 
 		CLIENT_CONFIG_MAP.put("@TitleOnlyPurposeLogin",
 				new String[] { "$ID:CreateOIDCClient_with_title_only_purpose_login_Smoke_sid_clientId$",
@@ -150,25 +142,13 @@ public class BaseTest extends AdminTestUtil {
 				new String[] { "$ID:CreateOIDCClient_with_subtitle_only_purpose_link_Smoke_sid_clientId$",
 						"$CLIENT_ASSERTION_PAR_JWT_SUBTITLE_ONLY_LINK$" });
 
-		CLIENT_CONFIG_MAP.put("@UpdatedTitleAndSubTitle",
-				new String[] { "$ID:CreateOIDCClient_with_updated_title_and_subtitle_Smoke_sid_clientId$",
-						"$CLIENT_ASSERTION_PAR_JWT_UPDATED_TITLE$" });
-	}
+		CLIENT_CONFIG_MAP.put("@EmptyPurposeType",
+				new String[] { "$ID:CreateOIDCClient_with_purpose_type_empty_Smoke_sid_clientId$",
+						"$CLIENT_ASSERTION_PAR_JWT_EMPTY_PURPOSE_TYPE$" });
 
-	// Runs before every other @Before hook (lowest order), unconditionally, so every scenario -
-	// pass, fail, or skipped by any later hook (known-issue, mosipid purpose-tag skip,
-	// @registrationProcess, etc.) - gets its own correctly-named ExtentTest before anything can
-	// throw. Without this, a hook that skips before beforeAll() reached its old createTest() call
-	// left testThread (a ThreadLocal that's never cleared - see ExtentReportManager.removeTest(),
-	// which is dead code) pointing at whatever scenario last ran on that thread, so the skip
-	// message was misattributed to an unrelated scenario's report entry.
-	@Before(order = 0)
-	public void createExtentTestForScenario(Scenario scenario) {
-		String browser = BaseTestUtil.getBrowserForScenario(scenario);
-		String lang = BaseTestUtil.getThreadLocalLanguage();
-		ExtentReportManager.createTest(scenario.getName() + " [" + browser + " | " + lang + "]");
-		ExtentReportManager
-				.logStep("Scenario Started: " + scenario.getName() + " | Browser: " + browser + " | Language: " + lang);
+		CLIENT_CONFIG_MAP.put("@MultiLangClientName",
+				new String[] { "$ID:CreateOIDCClient_with_multilang_clientName_Smoke_sid_clientId$",
+						"$CLIENT_ASSERTION_PAR_JWT_MULTILANG_NAME$" });
 	}
 
 	@Before(order = 2)
@@ -180,32 +160,33 @@ public class BaseTest extends AdminTestUtil {
 
 		if (runners.Runner.knownIssues.containsKey(scenario.getName())) {
 			String bugId = runners.Runner.knownIssues.get(scenario.getName());
+			String browser = BaseTestUtil.getBrowserForScenario(scenario);
+			String lang = BaseTestUtil.getThreadLocalLanguage();
+			ExtentReportManager.createTest(scenario.getName() + " [" + browser + " | " + lang + "]");
 			LOGGER.info("Skipping Known Issue Scenario: " + scenario.getName() + " | Bug: " + bugId);
 			isKnownIssueScenario.set(true);
-			skipWithReason("Known Issue - Skipped: " + scenario.getName() + " | " + bugId);
+			throw new SkipException("Known Issue - Skipped: " + scenario.getName() + " | " + bugId);
 		}
 		isKnownIssueScenario.set(false);
 
 		String pluginName = EsignetUtil.getPluginName();
-
-		// KBI is only offered by the mock and sunbird plugins - never mosipid.
-		if (scenario.getSourceTagNames().contains("@kbi") && !EsignetUtil.isKbiSupportedPlugin()) {
-			skipWithReason("KBI is only supported under the mock and sunbird plugins, not '" + pluginName + "'");
-		}
 
 		if ("mosipid".equalsIgnoreCase(pluginName)) {
 			Set<String> skipTags = new HashSet<>(CLIENT_CONFIG_MAP.keySet());
 
 			for (String tag : scenario.getSourceTagNames()) {
 				if (skipTags.contains(tag)) {
-					// scenario.getSourceTagNames() already returns tags with their leading '@'.
-					skipWithReason("Skipped for mosipid: scenario is tagged " + tag
-							+ ", which requires a mock-identity client not created under the mosipid plugin");
+					throw new SkipException("Skipped for mosipid");
 				}
 			}
 		}
 
 		totalCount++;
+		String browser = BaseTestUtil.getBrowserForScenario(scenario); // Start logging for the scenario
+		String lang = BaseTestUtil.getThreadLocalLanguage();
+		ExtentReportManager.createTest(scenario.getName() + " [" + browser + " | " + lang + "]");
+		ExtentReportManager
+				.logStep("Scenario Started: " + scenario.getName() + " | Browser: " + browser + " | Language: " + lang);
 
 		try {
 			String scenarioBrowser = BaseTestUtil.getBrowserForScenario(scenario);
@@ -226,6 +207,7 @@ public class BaseTest extends AdminTestUtil {
 
 			// Browser settings
 			driver.manage().window().maximize();
+			driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(10)); // Configurable if needed
 			driver.manage().timeouts().pageLoadTimeout(Duration.ofSeconds(30));
 
 			String baseUrl = EsignetConfigManager.getproperty("eSignetbaseurl");
@@ -233,8 +215,6 @@ public class BaseTest extends AdminTestUtil {
 
 			String clientIdKey = "$ID:CreateOIDCClient_all_Valid_Smoke_sid_clientId$";
 			String clientAssertion = "$CLIENT_ASSERTION_PAR_JWT$";
-			boolean isParScenario = scenario.getSourceTagNames().contains(PAR_TAG);
-			boolean isAuthorizeScopeOnly = scenario.getSourceTagNames().contains(AUTHORIZE_SCOPE_ONLY_TAG);
 
 			for (String tag : scenario.getSourceTagNames()) {
 				if (CLIENT_CONFIG_MAP.containsKey(tag)) {
@@ -245,60 +225,29 @@ public class BaseTest extends AdminTestUtil {
 				}
 			}
 
-			if (isParScenario && !EsignetUtil.isParSupported()) {
-				skipWithReason("Skipped: PAR is not supported in this environment");
-			}
+			String requestUri = EsignetUtil.generateParRequestUri(clientIdKey, clientAssertion);
 
-			boolean isKbiScenario = scenario.getSourceTagNames().contains("@kbi");
+			String clientId = AdminTestUtil.replaceIdWithAutogeneratedId(clientIdKey, "$ID:");
 
-			// KBI acr must be requested explicitly - it's not in the default acr_values.
-			String acrValues = isKbiScenario ? EsignetUtil.DEFAULT_ACR_VALUES + " " + EsignetUtil.KBI_ACR_VALUE
-					: EsignetUtil.DEFAULT_ACR_VALUES;
+			String updatedTemplate = template.replace("$REQUEST_URI$", requestUri).replace("$CLIENT_ID$", clientId);
 
-			// ui_locales: without it, the KBI form renders no label text (just the required "*").
-			String uiLocales = null;
-			if (isKbiScenario) {
-				String lang = BaseTestUtil.getThreadLocalLanguage();
-				String iso = lang != null ? utils.LanguageUtil.getIsoLanguageCode(lang) : null;
-				uiLocales = iso != null ? iso : "en";
-			}
+			String authorizeUrl = baseUrl + updatedTemplate;
 
-			// PAR-tagged scenarios drive a client that mandates PAR. Everything else uses the direct
-			// (non-PAR) /authorize flow - unless the environment mandates PAR for every client, in
-			// which case the direct flow would be rejected server-side and PAR is the only option.
-			String authorizeUrl;
-			if (isParScenario || EsignetUtil.isParRequired()) {
-				String requestUri = EsignetUtil.generateParRequestUri(clientIdKey, clientAssertion, acrValues, uiLocales);
-				String clientId = AdminTestUtil.replaceIdWithAutogeneratedId(clientIdKey, "$ID:");
-				String updatedTemplate = template.replace("$REQUEST_URI$", requestUri).replace("$CLIENT_ID$", clientId);
-				authorizeUrl = baseUrl + updatedTemplate;
-			} else {
-				String clientId = AdminTestUtil.replaceIdWithAutogeneratedId(clientIdKey, "$ID:");
-				if (isAuthorizeScopeOnly) {
-					authorizeUrl = EsignetUtil.generateDirectAuthorizeUrlWithoutClaims(clientId,
-							EsignetUtil.AUTHORIZE_SCOPE_ONLY);
-				} else {
-					authorizeUrl = EsignetUtil.generateDirectAuthorizeUrl(clientId, acrValues, uiLocales);
-				}
-			}
-
-			BasePage.authorizeUrl = authorizeUrl;
 			LOGGER.info("Authorize URL: " + authorizeUrl);
 
-			JavascriptExecutor jse = (JavascriptExecutor) driver;
-			driver.get(baseUrl);
-			driver.manage().deleteAllCookies();
-			jse.executeScript("window.localStorage.clear(); window.sessionStorage.clear();");
+			if (scenario.getSourceTagNames().contains("@kbiSchemaFetch")) {
+				BaseTestUtil.startCapturingKbiSchemaFetchRequest(driver);
+			}
+
+			if (scenario.getSourceTagNames().contains("@signupUiSchemaFetch")) {
+				BaseTestUtil.startCapturingUiSpecFetchRequest(driver);
+			}
 
 			driver.get(authorizeUrl);
+			driver.manage().deleteAllCookies();
 
 			LOGGER.info("Navigated to URL: " + authorizeUrl);
 
-		} catch (SkipException e) {
-			// skipWithReason() (e.g. the PAR-not-supported check above) throws this from inside the
-			// try block - let it propagate as a skip instead of falling into the generic handler
-			// below, which would misreport it as a WebDriver setup failure.
-			throw e;
 		} catch (Exception e) {
 			LOGGER.error("Failed to initialize WebDriver: " + e.getMessage());
 			ExtentReportManager.getTest().fail("❌ WebDriver setup failed: " + e.getMessage());
@@ -395,30 +344,7 @@ public class BaseTest extends AdminTestUtil {
 		}
 
 		try {
-			String status = scenario.getStatus().toString();
-
-			// Branch on status directly, not isFailed() - it misses UNDEFINED/PENDING/AMBIGUOUS
-			if (status.equalsIgnoreCase("SKIPPED") && runners.Runner.knownIssues.containsKey(scenario.getName())) {
-
-				String bugId = runners.Runner.knownIssues.get(scenario.getName());
-				String bugUrl = "https://mosip.atlassian.net/browse/" + bugId;
-
-				ExtentReportManager.incrementKnownIssue();
-				ExtentReportManager.getTest().skip(
-						"🟠 Skipped due to Known Issue → <a href='" + bugUrl + "' target='_blank'>" + bugId + "</a>");
-
-			} else if (status.equalsIgnoreCase("SKIPPED")) {
-
-				ExtentReportManager.incrementSkipped();
-				ExtentReportManager.getTest().skip("⚠️ Scenario Skipped: " + scenario.getName());
-
-			} else if (status.equalsIgnoreCase("PASSED")) {
-
-				passedCount++;
-				ExtentReportManager.incrementPassed();
-				ExtentReportManager.getTest().pass("✅ Scenario Passed: " + scenario.getName());
-
-			} else {
+			if (scenario.isFailed()) {
 
 				failedCount++;
 				ExtentReportManager.incrementFailed();
@@ -433,7 +359,27 @@ public class BaseTest extends AdminTestUtil {
 					ExtentReportManager.getTest().warning("Screenshot skipped because WebDriver was not initialized.");
 				}
 
-				ExtentReportManager.getTest().fail("❌ Scenario " + status + ": " + scenario.getName());
+				ExtentReportManager.getTest().fail("❌ Scenario Failed: " + scenario.getName());
+
+			} else if (scenario.getStatus().toString().equalsIgnoreCase("SKIPPED")
+					&& runners.Runner.knownIssues.containsKey(scenario.getName())) {
+
+				String bugId = runners.Runner.knownIssues.get(scenario.getName());
+				String bugUrl = "https://mosip.atlassian.net/browse/" + bugId;
+
+				ExtentReportManager.incrementKnownIssue();
+				ExtentReportManager.getTest().skip(
+						"🟠 Skipped due to Known Issue → <a href='" + bugUrl + "' target='_blank'>" + bugId + "</a>");
+
+			} else if (scenario.getStatus().toString().equalsIgnoreCase("SKIPPED")) {
+
+				ExtentReportManager.incrementSkipped();
+				ExtentReportManager.getTest().skip("⚠️ Scenario Skipped: " + scenario.getName());
+
+			} else {
+				passedCount++;
+				ExtentReportManager.incrementPassed();
+				ExtentReportManager.getTest().pass("✅ Scenario Passed: " + scenario.getName());
 			}
 
 			ExtentReportManager.flushReport();
@@ -467,29 +413,13 @@ public class BaseTest extends AdminTestUtil {
 		}
 	}
 
-	@Before(value = "@registrationProcess", order = 1)
-	public void skipRegistrationIfSignupServiceNotDeployed(Scenario scenario) {
-		if (!EsignetUtil.isSignupServiceDeployed()) {
-			skipWithReason("Signup service is not deployed in this environment - skipping end-to-end registration flow");
-		}
-	}
-
-	// SkipException's message alone never reaches the Extent report - only a generic
-	// "Scenario Skipped: <name>" line gets logged in afterScenario(). Log the reason as its own
-	// report entry before throwing, so every skip path (known-issue, mosipid purpose-tag,
-	// PAR-not-supported, @registrationProcess, etc.) is as visible in the report as a pass/fail.
-	// createExtentTestForScenario (order 0) guarantees an ExtentTest already exists by the time any
-	// of these run.
-	private void skipWithReason(String reason) {
-		ExtentReportManager.getTest().warning(reason);
-		throw new SkipException(reason);
-	}
-
 	@Before(value = "@mobile", order = 1)
 	public void enableMobileMode(Scenario scenario) {
-		String mobileDevice = EsignetConfigManager.getproperty("mobileDevice");
+		String defaultMobileDevice = EsignetConfigManager.getproperty("mobileDevice");
+		String mobileDevice = BaseTestUtil.getDeviceForScenario(scenario, defaultMobileDevice);
 		if (mobileDevice == null || mobileDevice.isBlank()) {
-			throw new IllegalStateException("mobileDevice property must be configured for `@mobile` scenarios");
+			throw new IllegalStateException(
+					"mobileDevice property must be configured (or an `@device=<name>` tag provided) for `@mobile` scenarios");
 		}
 		isMobileMode.set(true);
 		mobileDeviceName.set(mobileDevice);
@@ -501,6 +431,66 @@ public class BaseTest extends AdminTestUtil {
 		isMobileMode.remove();
 		mobileDeviceName.remove();
 		LOGGER.info("Mobile emulation disabled for next scenarios");
+	}
+
+	@Before(value = "@cameraDenied", order = 1)
+	public void enableCameraDeniedMode(Scenario scenario) {
+		BaseTestUtil.setCameraPermissionMode("denied");
+		LOGGER.info("Camera permission pre-set to denied for scenario: " + scenario.getName());
+	}
+
+	@Before(value = "@cameraPrompt", order = 1)
+	public void enableCameraPromptMode(Scenario scenario) {
+		BaseTestUtil.setCameraPermissionMode("prompt");
+		LOGGER.info("Camera permission left undecided (prompt) for scenario: " + scenario.getName());
+	}
+
+	@After("@cameraDenied or @cameraPrompt")
+	public void resetCameraPermissionMode() {
+		BaseTestUtil.clearCameraPermissionMode();
+		LOGGER.info("Camera permission mode reset to default (granted) for next scenarios");
+	}
+
+	@Before(value = "@leaveSitePrompt", order = 1)
+	public void enableUnhandledPromptInteraction(Scenario scenario) {
+		BaseTestUtil.setIgnoreUnhandledPrompts(true);
+		LOGGER.info("Beforeunload prompts will surface for explicit handling in scenario: " + scenario.getName());
+	}
+
+	@After("@leaveSitePrompt")
+	public void resetUnhandledPromptInteraction() {
+		BaseTestUtil.clearIgnoreUnhandledPrompts();
+		LOGGER.info("Unhandled prompt behavior reset to default for next scenarios");
+	}
+
+	@After("@kbiSchemaFetch")
+	public void clearKbiSchemaFetchCapture() {
+		BaseTestUtil.clearKbiSchemaFetchCapture();
+	}
+
+	@After("@signupUiSchemaFetch")
+	public void clearUiSpecFetchCapture() {
+		BaseTestUtil.clearUiSpecFetchCapture();
+	}
+
+	/**
+	 * Safety net: must run before the plain @After hook that quits the driver,
+	 * otherwise a scenario that disconnects the network and then fails before
+	 * reconnecting would leave the browser permanently offline for every
+	 * scenario that reuses this driver session afterwards. order=1 ensures
+	 * this runs ahead of afterScenario's default (unspecified) order.
+	 */
+	@After(value = "@NetworkError", order = 1)
+	public void restoreNetworkConnection(Scenario scenario) {
+		WebDriver driver = getDriver();
+		if (driver != null) {
+			try {
+				NetworkUtil.setNetworkOffline(driver, false);
+				LOGGER.info("Network connectivity restored after scenario: " + scenario.getName());
+			} catch (Exception e) {
+				LOGGER.warn("Failed to restore network connectivity after scenario: " + scenario.getName(), e);
+			}
+		}
 	}
 
 	public static WebDriver getDriver() {

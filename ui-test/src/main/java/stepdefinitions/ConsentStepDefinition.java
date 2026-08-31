@@ -3,7 +3,6 @@ package stepdefinitions;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import org.testng.Assert;
-import org.testng.SkipException;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -26,11 +25,12 @@ import pages.LoginOptionsPage;
 import pages.SignUpPage;
 import pages.SignupFormDynamicFiller;
 import utils.BaseTestUtil;
+import utils.BaseTestUtil.CapturedRequest;
 import utils.ClaimsUtil;
 import utils.EsignetUtil;
 import utils.EsignetUtil.RegisteredDetails;
-import utils.ExtentReportManager;
 import utils.ResourceBundleLoader;
+
 
 public class ConsentStepDefinition {
 
@@ -59,11 +59,13 @@ public class ConsentStepDefinition {
 		signUpPage.clickOnRegisterButton();
 	}
 
+	private String lastGeneratedIdentifier;
 	@Then("user enters mobile_number in the mobile number field")
 	public void userEnterValidMobileNumber() {
 		String fieldId = EsignetUtil.getIdentifierFieldId();
 		String regex = EsignetUtil.getRegexForField(fieldId);
 		String value = EsignetUtil.generateValueFromRegex(regex, 9);
+		lastGeneratedIdentifier = value;
 		RegisteredDetails.setMobileNumber(value);
 		signUpPage.enterMobileNumber(value);
 	}
@@ -75,18 +77,8 @@ public class ConsentStepDefinition {
 
 	@When("user enters the OTP")
 	public void userEnterOtp() {
-		String mobile = RegisteredDetails.getMobileNumber();
-		signUpPage.enterOtp(NotificationListener.getOtp(mobile));
-	}
-
-	@Then("mark otp request timestamp")
-	public void markOtpRequestTimestamp() {
-		NotificationListener.markRequestStart();
-	}
-
-	@Then("remove otp request timestamp")
-	public void removeOtpRequestTimestamp() {
-		NotificationListener.markRequestRemove();
+		String number = EsignetUtil.normalizeIdentifierForOtp(lastGeneratedIdentifier);
+		signUpPage.enterOtp(NotificationListener.getOtp(number));
 	}
 
 	@Then("user clicks on the Verify OTP button")
@@ -116,6 +108,175 @@ public class ConsentStepDefinition {
 				"Success message is not displayed");
 	}
 
+	@Then("user navigates back in the browser from the signup form and a leave site prompt should appear")
+	public void userNavigatesBackFromSignupFormExpectingPrompt() {
+		signUpPage.navigateBackExpectingLeaveSitePrompt();
+	}
+
+	@Then("user cancels the leave site prompt on the signup form")
+	public void userCancelsLeaveSitePromptOnSignupForm() {
+		signUpPage.dismissAlert();
+	}
+
+	@Then("user confirms the leave site prompt on the signup form")
+	public void userConfirmsLeaveSitePromptOnSignupForm() {
+		signUpPage.acceptAlert();
+	}
+
+	@Then("verify user is retained on the setup account page")
+	public void verifyUserRetainedOnSetupAccountPage() {
+		Assert.assertTrue(signUpPage.isSetupAccountPageDisplayed(),
+				"User is not retained on the setup account page after cancelling the leave site prompt");
+	}
+
+	@Then("verify user is no longer on the setup account page")
+	public void verifyUserNoLongerOnSetupAccountPage() {
+		Assert.assertFalse(signUpPage.isSetupAccountPageDisplayed(),
+				"User is still on the setup account page after confirming to leave");
+	}
+
+	private String cameraDeviceIdBeforeFlip;
+
+	@When("user opens the photo capture camera")
+	public void userOpensPhotoCaptureCamera() {
+		signUpPage.clickOnUploadPhoto();
+	}
+
+	@When("user notes the active camera device")
+	public void userNotesActiveCameraDevice() {
+		cameraDeviceIdBeforeFlip = signUpPage.getActivePhotoCaptureDeviceId();
+	}
+
+	@When("user clicks on the flip camera button")
+	public void userClicksOnFlipCameraButton() {
+		signUpPage.clickOnFlipCameraButton();
+	}
+
+	@Then("verify the camera view has flipped to a different camera")
+	public void verifyCameraViewHasFlipped() {
+		String deviceIdAfterFlip = signUpPage.getActivePhotoCaptureDeviceId();
+		Assert.assertNotNull(cameraDeviceIdBeforeFlip, "No active camera device detected before flipping");
+		Assert.assertNotNull(deviceIdAfterFlip, "No active camera device detected after flipping");
+		Assert.assertNotEquals(deviceIdAfterFlip, cameraDeviceIdBeforeFlip,
+				"Camera view did not flip to a different camera device");
+	}
+
+	@Then("verify the tooltip message for photo icon is displayed with guidance text")
+	public void verifyTooltipMessageForPhotoIcon() {
+		String actualTooltip = signUpPage.getPhotoIconTooltipText();
+		assertFalse(actualTooltip.trim().isEmpty());
+	}
+
+	@Then("verify camera permission state on signup is {string}")
+	public void verifyCameraPermissionStateOnSignup(String expectedState) {
+		Assert.assertEquals(signUpPage.getCameraPermissionState(), expectedState,
+				"Camera permission state did not match expected value");
+	}
+
+	@Then("verify camera access denied message is displayed on signup photo capture")
+	public void verifyCameraAccessDeniedMessageDisplayedOnSignup() {
+		Assert.assertTrue(signUpPage.isCameraAccessDeniedMessageDisplayed(),
+				"Camera access denied message is not displayed on the photo capture screen");
+	}
+
+	@Then("verify fallback upload option is displayed on signup photo capture")
+	public void verifyFallbackUploadOptionDisplayedOnSignup() {
+		Assert.assertTrue(signUpPage.isFallbackUploadOptionDisplayed(),
+				"Fallback upload option is not displayed after camera access was denied");
+	}
+
+	@When("user uploads a photo file for the face photo instead of using the camera")
+	public void userUploadsPhotoFileInsteadOfUsingCamera() throws Exception {
+		signUpPage.uploadPhotoFromFallbackInput();
+	}
+
+	@When("user fills the remaining signup form fields using UI specification")
+	public void userFillsRemainingSignupFormFieldsUsingUiSpecification() throws Exception {
+		Map<String, Map<String, Object>> uiSpecFields = EsignetUtil.getUiSpecFields();
+		formFiller.fillFormFromUiSpec(uiSpecFields, true);
+	}
+
+	@Given("user starts monitoring the registration submission request")
+	public void userStartsMonitoringRegistrationSubmissionRequest() {
+		signUpPage.startCapturingRegistrationSubmission();
+	}
+
+	@Then("verify the registration request was submitted as multipart form-data and processed successfully")
+	public void verifyRegistrationRequestSubmittedAsMultipartFormData() {
+		Assert.assertTrue(signUpPage.isRegistrationSubmissionMultipartAndSuccessful(),
+				"Registration request was not submitted as multipart/form-data or was not processed successfully");
+	}
+
+	@Then("verify the signup ui schema fetch request required no authentication")
+	public void verifySignupUiSchemaFetchRequestRequiredNoAuthentication() {
+		Assert.assertTrue(signUpPage.isUiSpecFetchUnauthenticatedAndSuccessful(),
+				"Signup UI schema fetch request either required authentication or did not complete successfully");
+	}
+
+	@Then("verify the signup ui schema contains no sensitive information")
+	public void verifySignupUiSchemaContainsNoSensitiveInformation() {
+		List<String> findings = EsignetUtil.findSensitiveDataInSignupUiSchema();
+		Assert.assertTrue(findings.isEmpty(), "Signup UI schema contains sensitive/unexpected content: " + findings);
+	}
+
+	@Then("verify the signup ui schema does not specify a default language")
+	public void verifySignupUiSchemaDoesNotSpecifyDefaultLanguage() {
+		Assert.assertTrue(EsignetUtil.isDefaultLanguageUnspecifiedInSignupSchema(),
+				"Signup UI schema's language config unexpectedly specifies a default language");
+	}
+
+	@When("user clears the signup language preference and reloads")
+	public void userClearsSignupLanguagePreferenceAndReloads() {
+		signUpPage.clearStoredLanguagePreferenceAndReload();
+	}
+
+	@Then("verify the signup form defaults to English when no language preference is set")
+	public void verifySignupFormDefaultsToEnglish() {
+		Assert.assertEquals(signUpPage.getSignupLanguageFromLocalStorage(), "en",
+				"Signup form did not default to English when no language preference was set");
+	}
+
+	@When("user's internet connection is disconnected during signup")
+	public void userInternetConnectionIsDisconnectedDuringSignup() {
+		signUpPage.setNetworkOffline(true);
+	}
+
+	private List<CapturedRequest> uiSpecRequestsAfterReconnect;
+
+	@When("user's internet connection is restored during signup")
+	public void userInternetConnectionIsRestoredDuringSignup() {
+		uiSpecRequestsAfterReconnect = BaseTestUtil.captureRequests(driver, "ui-spec");
+		signUpPage.setNetworkOffline(false);
+	}
+
+	@Then("verify the network error message is displayed on signup")
+	public void verifyNetworkErrorMessageDisplayedOnSignup() {
+		Assert.assertTrue(signUpPage.isNetworkErrorBannerDisplayed(),
+				"Network error message (\"Your network connection dropped, please check your internet connection.\") is not displayed on signup");
+	}
+
+	@Then("verify the network error message is no longer displayed on signup")
+	public void verifyNetworkErrorMessageGoneOnSignup() {
+		Assert.assertTrue(signUpPage.waitUntilNetworkErrorBannerHidden(),
+				"Network error message is still displayed on signup after the connection was restored");
+	}
+
+	@Then("verify the signup ui schema is freshly re-fetched after reconnecting")
+	public void verifySignupUiSchemaFreshlyRefetchedAfterReconnecting() {
+		long deadline = System.currentTimeMillis() + 8000;
+		while ((uiSpecRequestsAfterReconnect == null || uiSpecRequestsAfterReconnect.isEmpty())
+				&& System.currentTimeMillis() < deadline) {
+			try {
+				Thread.sleep(250);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				break;
+			}
+		}
+		Assert.assertFalse(uiSpecRequestsAfterReconnect == null || uiSpecRequestsAfterReconnect.isEmpty(),
+				"Signup UI did not re-fetch the schema from the API after the network connection was restored");
+	}
+
 	private String expectedDefaultLang;
 
 	@Then("user click on Login with Otp")
@@ -126,28 +287,8 @@ public class ConsentStepDefinition {
 
 	@Then("user enters Registered mobile number into the mobile number field")
 	public void userEntersRegisteredMobileNumber() {
-		String registeredNumber = EsignetUtil.getPrerequisiteRegisteredPhoneNumber();
-		if (registeredNumber == null || registeredNumber.isBlank()) {
-			skipWithReason("No registered mobile number available - the Adding Identity prerequisite did not produce one");
-		}
-		consentPage.enterRegisteredMobileNumber(registeredNumber);
-	}
-
-	@Then("user enters the newly registered mobile number into the mobile number field")
-	public void userEntersNewlyRegisteredMobileNumber() {
 		String registeredNumber = RegisteredDetails.getMobileNumber();
-		if (registeredNumber == null || registeredNumber.isBlank()) {
-			skipWithReason("No newly registered mobile number available - the signup flow did not run");
-		}
 		consentPage.enterRegisteredMobileNumber(registeredNumber);
-	}
-
-	// SkipException's message alone never reaches the Extent report - BaseTest.afterScenario only
-	// logs a generic "Scenario Skipped: <name>" line - so log the reason as its own report entry
-	// before throwing, giving the same visibility a failure/pass step gets.
-	private void skipWithReason(String reason) {
-		ExtentReportManager.getTest().warning(reason);
-		throw new SkipException(reason);
 	}
 
 	@Then("user click on get otp button")
@@ -157,7 +298,8 @@ public class ConsentStepDefinition {
 
 	@Then("user enters the correct otp")
 	public void userEnterCorrectOtp() {
-		consentPage.enterOtp(BasePage.getOtp());
+		String mobile = RegisteredDetails.getMobileNumber();
+		consentPage.enterOtp(NotificationListener.getOtp(mobile));
 	}
 
 	@Then("click on verify Otp button")
@@ -173,6 +315,17 @@ public class ConsentStepDefinition {
 	@Then("clicks on proceed button in attention page")
 	public void clickOnProceedButtonInAttentionPage() {
 		consentPage.clickOnProceedButtonInAttentionPage();
+	}
+
+	@Given("the eKYC process request is mocked to time out")
+	public void theEkycProcessRequestIsMockedToTimeOut() {
+		consentPage.mockPrepareSignupRedirectAsResponseTimeout();
+	}
+
+	@Then("verify the request timed out error is displayed")
+	public void verifyRequestTimedOutErrorIsDisplayed() {
+		Assert.assertTrue(consentPage.isResponseTimeoutErrorDisplayedOnRelyingParty(),
+				"Relying party did not display the \"request took too long to process\" error after the eKYC process request was mocked to time out");
 	}
 
 	@Then("clicks on proceed button in next page")
@@ -350,11 +503,13 @@ public class ConsentStepDefinition {
 	@Then("verify the timer starts from 55sec in the consent page via Otp login")
 	public void verifyConsentPageTimer() {
 		int seconds = consentPage.getConsentTimerSeconds();
-		// The timer only ever counts down from 55, so 55 is a hard ceiling; the floor is widened to
-		// absorb step-execution overhead between navigating to the consent screen and this read
-		// under full-suite load (observed consistently landing at 53, which a 54-56 band couldn't
-		// tolerate even though the timer itself is behaving correctly).
-		Assert.assertTrue(seconds >= 48 && seconds <= 55, "Timer should start around 55 seconds, but was: " + seconds);
+		Assert.assertTrue(seconds >= 54 && seconds <= 56, "Timer should start around 55 seconds, but was: " + seconds);
+	}
+
+	@Then("verify user is logged out and redirected to the relying party once the consent timer times out")
+	public void verifyUserIsLoggedOutAndRedirectedOnceConsentTimerTimesOut() {
+		Assert.assertTrue(consentPage.waitForTransactionTimeoutRedirect(),
+				"User was not redirected to the relying party with a transaction_timeout error once the consent screen timer expired");
 	}
 
 	@Then("refresh the browser tab and verify timer continue with leftover seconds")
@@ -456,6 +611,14 @@ public class ConsentStepDefinition {
 		Assert.assertFalse(consentPage.isLoginSubTitleDisplayed(), "Subtitle is displayed");
 	}
 
+	@Then("verify default title and subtitle should be displayed when both title and subtitle are not configured")
+	public void verifyDefaultLoginTitleAndSubtitleWhenBothMissing() {
+		Assert.assertEquals(consentPage.getLoginTitleText(), "Login using eSignet",
+				"Default title is not displayed when title and subtitle are not configured for the client");
+		Assert.assertTrue(consentPage.getLoginSubTitleText().contains("is requesting authentication for login"),
+				"Default subtitle is not displayed when title and subtitle are not configured for the client");
+	}
+
 	@Then("verify title and subtitle should be displayed as per text given during client creation")
 	public void verifyDefaultLoginTitleAndSubtitle() {
 		Assert.assertTrue(consentPage.getLoginTitleText().equals("Verify using eSignet"));
@@ -467,60 +630,136 @@ public class ConsentStepDefinition {
 		// Title is already handled via scenario tags in BaseTest
 	}
 
-	@Then("verify default title and subtitle should be displayed when both title and subtitle are not configured")
-	public void verifyDefaultTitleAndSubtitleWhenNotConfigured() {
-		Assert.assertEquals(consentPage.getLoginTitleText(), "Login using eSignet",
-				"Default title was not displayed as expected");
-		Assert.assertTrue(consentPage.waitForLoginSubTitleToContain("is requesting authentication for login"),
-				"Default subtitle was not displayed as expected");
-	}
-
 	@When("user creates the client with empty title and subtitle values")
 	public void userCreateClientIdWithEmptyTitle() {
 		// Title is already handled via scenario tags in BaseTest
 	}
 
-	@Given("user creates the client with updated title and subtitle values")
-	public void userCreateClientWithUpdatedTitleAndSubtitle() {
-		// Client is already created via scenario tags in BaseTest (see CLIENT_CONFIG_MAP)
-		logger.info("Creating client with updated title and subtitle values");
+	@When("user creates the client with updated title and subtitle values")
+	public void userCreateClientIdWithUpdatedTitle() {
+		// Title is already handled via scenario tags in BaseTest
 	}
 
 	@Then("verify title and subtitle should be displayed as per updated client details")
-	public void verifyTitleAndSubtitleDisplayedAsPerUpdatedClientDetails() {
-		Assert.assertEquals(consentPage.getLoginTitleText(), "Updated eSignet Login Title",
-				"Title was not displayed as per the updated client details");
-		Assert.assertTrue(consentPage.waitForLoginSubTitleToContain("Updated eSignet subtitle text"),
-				"Subtitle was not displayed as per the updated client details");
+	public void verifyUpdatedLoginTitleAndSubtitle() {
+		Assert.assertEquals(consentPage.getLoginTitleText(), "Continue to Health Services Portal",
+				"Updated title is not displayed as per the text given while updating client details");
+		Assert.assertTrue(
+				consentPage.getLoginSubTitleText().contains("requires your consent to share profile details"),
+				"Updated subtitle is not displayed as per the text given while updating client details");
 	}
 
-	@Given("user creates the client with a title but no subtitle for purpose type {string}")
-	public void userCreateClientWithTitleOnly(String purposeType) {
-		// purposeType selects which @TitleOnlyPurpose<X> tagged scenario is running (see CLIENT_CONFIG_MAP)
-		logger.info("Creating client with title only for purpose type: " + purposeType);
+	@When("user creates the client with a title but no subtitle for purpose type {string}")
+	public void userCreateClientIdWithTitleOnly(String purposeType) {
+		// Purpose type/title/(missing) subtitle are already handled via scenario tags in BaseTest
 	}
 
 	@Then("verify default subtitle {string} should be displayed when subtitle is not configured")
-	public void verifyDefaultSubtitleWhenNotConfigured(String expectedSubtitle) {
-		Assert.assertTrue(consentPage.waitForLoginSubTitleToContain(expectedSubtitle),
-				"Default subtitle was not displayed as expected. Expected to contain: " + expectedSubtitle);
+	public void verifyDefaultSubtitleDisplayedWhenNotConfigured(String expectedDefaultSubtitlePart) {
+		Assert.assertTrue(consentPage.isLoginTitleDisplayed(), "Title is not displayed even though title was configured");
+		Assert.assertFalse(consentPage.getLoginTitleText().isEmpty(), "Title text is empty");
+		Assert.assertTrue(consentPage.getLoginSubTitleText().contains(expectedDefaultSubtitlePart),
+				"Default subtitle for the purpose type is not displayed as expected: " + expectedDefaultSubtitlePart);
 	}
 
-	@Given("user creates the client with a subtitle but no title for purpose type {string}")
-	public void userCreateClientWithSubtitleOnly(String purposeType) {
-		// purposeType selects which @SubtitleOnlyPurpose<X> tagged scenario is running (see CLIENT_CONFIG_MAP)
-		logger.info("Creating client with subtitle only for purpose type: " + purposeType);
+	@When("user creates the client with a subtitle but no title for purpose type {string}")
+	public void userCreateClientIdWithSubtitleOnly(String purposeType) {
+		// Purpose type/subtitle/(missing) title are already handled via scenario tags in BaseTest
 	}
 
 	@Then("verify default title {string} should be displayed when title is not configured")
-	public void verifyDefaultTitleWhenNotConfigured(String expectedTitle) {
-		Assert.assertEquals(consentPage.getLoginTitleText(), expectedTitle,
-				"Default title was not displayed as expected");
+	public void verifyDefaultTitleDisplayedWhenNotConfigured(String expectedDefaultTitle) {
+		Assert.assertTrue(consentPage.isLoginSubTitleDisplayed(),
+				"Subtitle is not displayed even though subtitle was configured");
+		Assert.assertFalse(consentPage.getLoginSubTitleText().isEmpty(), "Subtitle text is empty");
+		Assert.assertEquals(consentPage.getLoginTitleText(), expectedDefaultTitle,
+				"Default title for the purpose type is not displayed as expected: " + expectedDefaultTitle);
 	}
 
-	@Given("user creates the client with an empty purpose type")
-	public void userCreateClientWithEmptyPurposeType() {
-		// Client is already created via scenario tags in BaseTest (see CLIENT_CONFIG_MAP)
+	@When("user creates the client with an empty purpose type")
+	public void userCreateClientIdWithEmptyPurposeType() {
+		// Purpose type is already handled via scenario tags in BaseTest
+	}
+
+	@When("user creates the client with client name configured in multiple languages")
+	public void userCreateClientIdWithMultiLangClientName() {
+		// clientNameLangMap is already handled via scenario tags in BaseTest
+	}
+
+	@When("user switches the language to {string} on the consent screen")
+	public void userSwitchesLanguageOnConsentScreen(String langCode) {
+		consentPage.clickOnLanguageDropdown();
+		consentPage.selectLanguage(langCode);
+	}
+
+	@Then("verify the relying party name on the consent screen is displayed as {string}")
+	public void verifyRelyingPartyNameOnConsentScreen(String expectedClientName) {
+		Assert.assertTrue(consentPage.getActionMessageText().contains(expectedClientName),
+				"Relying party name is not displayed as expected on the consent screen: expected to contain '"
+						+ expectedClientName + "', but was '" + consentPage.getActionMessageText() + "'");
+	}
+
+	@Then("verify the relying party name on the login page is displayed as {string}")
+	public void verifyRelyingPartyNameOnLoginPage(String expectedClientName) {
+		Assert.assertTrue(consentPage.getLoginSubTitleText().contains(expectedClientName),
+				"Relying party name is not displayed as expected on the login page: expected to contain '"
+						+ expectedClientName + "', but was '" + consentPage.getLoginSubTitleText() + "'");
+	}
+
+	@Then("verify the relying party logo alt text on the login page is displayed as {string}")
+	public void verifyRelyingPartyLogoAltTextOnLoginPage(String expectedClientName) {
+		String actualAlt = consentPage.getBrandLogoAltText();
+		Assert.assertNotNull(actualAlt, "Relying party logo does not have an alt attribute on the login page");
+		Assert.assertTrue(actualAlt.contains(expectedClientName),
+				"Relying party logo alt text is not displayed as expected on the login page: expected to contain '"
+						+ expectedClientName + "', but was '" + actualAlt + "'");
+	}
+
+	@Then("verify the eSignet logo alt text on the login page is displayed as {string}")
+	public void verifyEsignetLogoAltTextOnLoginPage(String expectedAltText) {
+		String actualAlt = consentPage.getEsignetLogoAltText();
+		Assert.assertNotNull(actualAlt, "eSignet logo does not have an alt attribute on the login page");
+		Assert.assertEquals(actualAlt, expectedAltText,
+				"eSignet logo alt text is not displayed as expected on the login page");
+	}
+
+	@Then("verify the relying party logo alt text on the consent screen is displayed as {string}")
+	public void verifyRelyingPartyLogoAltText(String expectedClientName) {
+		String actualAlt = consentPage.getBrandLogoAltText();
+		Assert.assertNotNull(actualAlt, "Relying party logo does not have an alt attribute");
+		Assert.assertTrue(actualAlt.contains(expectedClientName),
+				"Relying party logo alt text is not displayed as expected on the consent screen: expected to contain '"
+						+ expectedClientName + "', but was '" + actualAlt + "'");
+	}
+
+	@Then("verify the eSignet logo alt text on the consent screen is displayed as {string}")
+	public void verifyEsignetLogoAltText(String expectedAltText) {
+		String actualAlt = consentPage.getEsignetLogoAltText();
+		Assert.assertNotNull(actualAlt, "eSignet logo does not have an alt attribute");
+		Assert.assertEquals(actualAlt, expectedAltText,
+				"eSignet logo alt text is not displayed as expected on the consent screen");
+	}
+
+	@When("user's internet connection is disconnected")
+	public void userInternetConnectionIsDisconnected() {
+		consentPage.setNetworkOffline(true);
+	}
+
+	@When("user's internet connection is restored")
+	public void userInternetConnectionIsRestored() {
+		consentPage.setNetworkOffline(false);
+	}
+
+	@Then("verify the network error screen is displayed")
+	public void verifyNetworkErrorScreenIsDisplayed() {
+		Assert.assertTrue(consentPage.isNetworkErrorScreenDisplayed(),
+				"Network error screen (\"Network Error!\" / \"Please check your internet connection and try again.\") is not displayed");
+	}
+
+	@Then("verify language dropdown is not displayed on the network error screen")
+	public void verifyLanguageDropdownNotDisplayedOnNetworkErrorScreen() {
+		Assert.assertFalse(consentPage.isLanguageSelectionElementPresent(),
+				"Language dropdown is displayed on the network error screen");
 	}
 
 	@Then("verify select preferred mode text is displayed")
@@ -560,12 +799,6 @@ public class ConsentStepDefinition {
 		Assert.assertEquals(consentPage.getSelectPreferredIdHeaderText(), expectedText, "Expected text mismatch");
 	}
 	
-	@Then("verify user is navigated to consent to profile update screen")
-	public void verifyNavigatedToConsentProfileUpdateScreen() {
-		Assert.assertTrue(consentPage.isHeaderInConsentUpdateProfileScreenVisible(),
-				"User is not navigated to the consent to profile update screen");
-	}
-
 	@Then("verify the header Attention in the consent to profile update screen")
 	public void verifyHeaderInConsentProfileUpdateScreenDisplayed() {
 		Assert.assertTrue(consentPage.isHeaderInConsentUpdateProfileScreenVisible(),
@@ -691,69 +924,94 @@ public class ConsentStepDefinition {
 		consentPage.clickOnDiscontinueButton();
 	}
 
-	@Then("user is navigated to consent screen after authentication")
-	public void waitUntilConsentScreenAfterAuthentication() {
-		consentPage.waitUntilConsentScreenAfterAuthentication();
-		Assert.assertTrue(consentPage.isConsentScreenVisible(), "User didn't navigated to consent screen");
+	@Then("verify available claim status is displayed in consent to update profile screen")
+	public void verifyAvailableClaimStatusDisplayed() {
+		Assert.assertTrue(consentPage.isAvailableClaimStausDisplayed(),
+				"Available claim status is not displayed in consent to update profile screen");
 	}
 
-	@Then("verify authorize scopes are displayed on consent screen")
-	public void verifyAuthorizeScopesDisplayedOnConsentScreen() {
-		Assert.assertTrue(consentPage.isAuthorizeScopeSectionDisplayed(),
-				"Authorize scopes section is not displayed on consent screen");
-		Assert.assertTrue(consentPage.isAuthorizeScopeDisplayed("Manage-VID"),
-				"Manage-VID authorize scope is not displayed on consent screen");
+	@Then("verify not available claim status is displayed in consent to update profile screen")
+	public void verifyNotAvailableClaimStatusDisplayed() {
+		Assert.assertTrue(consentPage.isNotAvailableClaimStausDisplayed(),
+				"Not available claim status is not displayed in consent to update profile screen");
 	}
 
-	@Then("verify essential and voluntary claims are not displayed on consent screen")
-	public void verifyClaimSectionsAbsentOnConsentScreen() {
-		Assert.assertTrue(consentPage.areClaimSectionsAbsent(),
-				"Essential or voluntary claims sections were displayed when only authorize scopes were requested");
-	}
-
-	@When("user enables the authorize scope {string}")
-	public void userEnablesAuthorizeScope(String scopeName) {
-		consentPage.toggleAuthorizeScope(scopeName, true);
-	}
-
-	@When("user clicks on allow button in consent screen")
-	public void userClicksAllowButtonInConsentScreen() {
+	@When("user clicks on Allow button in consent screen")
+	public void userClicksOnAllowButtonInConsentScreen() {
 		consentPage.clickOnAllowBtnInConsentScreen();
 	}
 
-	@Then("verify user is navigated to user profile page")
-	public void verifyUserIsNavigatedToUserProfilePage() {
-		consentPage.waitUntilUserProfilePage();
-		Assert.assertTrue(consentPage.isUserProfilePageDisplayed(),
-				"User was not redirected to the Health Service user profile page with an authorization code");
+	@Then("verify user is no longer on consent screen after clicking allow")
+	public void verifyUserIsNoLongerOnConsentScreenAfterAllow() {
+		Assert.assertFalse(consentPage.isConsentScreenVisible(),
+				"User is still on the consent screen after clicking Allow");
 	}
 
-	@Then("user completes consent flow through eKYC and returns to relying party")
-	public void userCompletesConsentFlowThroughEkycAndReturnsToRelyingParty() {
-		requirePrerequisiteVidsForConsentRegistry();
-		Assert.assertTrue(consentPage.isOnAttentionScreen(), "User didn't navigate to attention page");
-		consentPage.completeConsentFlowThroughEkyc();
+	@Then("verify user is no longer on the attention screen after clicking discontinue")
+	public void verifyUserIsNoLongerOnAttentionScreenAfterDiscontinue() {
+		Assert.assertFalse(consentPage.isOnAttentionScreen(),
+				"User is still on the attention screen after clicking Discontinue");
 	}
 
-	@Then("user completes consent flow through eKYC if attention screen is displayed")
-	public void userCompletesConsentFlowIfAttentionScreenIsDisplayed() {
-		requirePrerequisiteVidsForConsentRegistry();
-		consentPage.completeConsentFlowThroughEkycIfAttentionScreenIsDisplayed();
+	@Then("verify user bypasses the attention and consent screens and is redirected to the relying party landing page")
+	public void verifyUserBypassesAttentionAndConsentScreens() {
+		Assert.assertFalse(consentPage.isOnAttentionScreen(),
+				"User was navigated to the attention screen even though essential claims are already verified and consented for this relying party");
+		Assert.assertFalse(consentPage.isConsentScreenVisible(),
+				"User was navigated to the consent screen even though essential claims are already verified and consented for this relying party");
+		Assert.assertTrue(consentPage.isRedirectedToRelyingPartyLandingPage(),
+				"User was not redirected to the relying party landing page after logging in a second time with already-consented essential claims");
 	}
 
-	@Then("verify consent is not requested after authentication")
-	public void verifyConsentIsNotRequestedAfterAuthentication() {
-		requirePrerequisiteVidsForConsentRegistry();
-		consentPage.assertAuthenticationCompletedWithoutConsent();
+	@Given("user relaunches esignet url with {string} claim updated to {string}")
+	public void userRelaunchesEsignetUrlWithClaimUpdatedTo(String claimName, String essentialOrVoluntary) throws Exception {
+		boolean essential = "essential".equalsIgnoreCase(essentialOrVoluntary);
+		String url = EsignetUtil.generateAuthorizeUrlWithUpdatedClaim(claimName, essential);
+		driver.get(url);
 	}
 
-	private void requirePrerequisiteVidsForConsentRegistry() {
-		if (!"mosipid".equalsIgnoreCase(EsignetUtil.getPluginName())) {
-			skipWithReason("Consent registry VID flow requires mosipid plugin");
-		}
-		if (!EsignetUtil.arePrerequisiteVidsAvailable()) {
-			skipWithReason(
-					"Prerequisite perpetual and temporary VIDs are unavailable - enable CreateVID in esignetPrerequisiteSuite.xml or set vid=vid1,vid2 in config.properties");
-		}
+	@Given("user navigates to esignet url with {string} claim updated to {string}")
+	public void userNavigatesToEsignetUrlWithClaimUpdatedTo(String claimName, String essentialOrVoluntary) throws Exception {
+		userRelaunchesEsignetUrlWithClaimUpdatedTo(claimName, essentialOrVoluntary);
+	}
+
+	@Given("user relaunches esignet url requesting verification of an additional {string} claim")
+	public void userRelaunchesEsignetUrlRequestingAdditionalVerifiedClaim(String newClaimName) throws Exception {
+		String url = EsignetUtil.generateAuthorizeUrlWithAdditionalVerifiedClaim(newClaimName);
+		driver.get(url);
+	}
+
+	@Then("verify the {string} claim shows verified status in consent to update profile screen")
+	public void verifyClaimShowsVerifiedStatus(String claimLabel) {
+		Assert.assertTrue(consentPage.isClaimShownAsVerified(claimLabel),
+				"\"Verified\" status is not displayed against the '" + claimLabel
+						+ "' claim in the consent to update profile screen");
+	}
+
+	@Then("verify the {string} claim shows not verified status in consent to update profile screen")
+	public void verifyClaimShowsNotVerifiedStatus(String claimLabel) {
+		Assert.assertTrue(consentPage.isClaimShownAsNotVerified(claimLabel),
+				"\"Not Verified\" status is not displayed against the '" + claimLabel
+						+ "' claim in the consent to update profile screen");
+	}
+
+	@Given("user captures the authorize url requesting an additional voluntary {string} claim")
+	public void userCapturesAuthorizeUrlRequestingAdditionalVoluntaryClaim(String newClaimName) throws Exception {
+		String url = EsignetUtil.generateAuthorizeUrlWithAdditionalVoluntaryClaim(newClaimName);
+		driver.get(url);
+	}
+
+	@Then("verify user is redirected to the eKYC provider list screen")
+	public void verifyUserIsRedirectedToEkycProviderListScreen() {
+		Assert.assertTrue(consentPage.isOnEkycProviderListScreen(),
+				"User was not redirected to the eKYC provider list screen");
+	}
+
+	@Then("verify user bypasses the attention screen and is redirected to the consent screen")
+	public void verifyUserBypassesAttentionScreenAndReachesConsentScreen() {
+		Assert.assertFalse(consentPage.isOnAttentionScreen(),
+				"User was navigated to the attention screen even though the verified claim is still verified and consented for this relying party");
+		Assert.assertTrue(consentPage.isConsentScreenVisible(),
+				"User was not navigated to the consent screen after the claim's essential/voluntary status was updated for the relying party");
 	}
 }

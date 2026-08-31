@@ -1,5 +1,8 @@
 package stepdefinitions;
 
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+
 import org.testng.Assert;
 
 import java.io.BufferedReader;
@@ -15,7 +18,6 @@ import org.apache.log4j.Logger;
 import org.openqa.selenium.Dimension;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
-import org.openqa.selenium.chromium.HasCdp;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
@@ -28,10 +30,8 @@ import pages.LoginOptionsPage;
 import pages.SignUpPage;
 import pages.SignupFormDynamicFiller;
 import utils.ClaimsUtil;
-import utils.EsignetUtil;
-
-import static org.testng.AssertJUnit.assertFalse;
-import static org.testng.AssertJUnit.assertNotNull;
+import utils.EsignetConfigManager;
+import utils.EsignetUtil.RegisteredDetails;
 
 public class LoginOptionsStepDefinition {
 
@@ -40,53 +40,15 @@ public class LoginOptionsStepDefinition {
 	LoginOptionsPage loginOptionsPage;
 	SignUpPage signUpPage;
 	SignupFormDynamicFiller formFiller;
+	BaseTest baseTest;
 
 	public LoginOptionsStepDefinition(BaseTest baseTest) {
+		this.baseTest = baseTest;
 		this.driver = baseTest.getDriver();
 		loginOptionsPage = new LoginOptionsPage(driver);
 		signUpPage = new SignUpPage(driver);
 		formFiller = new SignupFormDynamicFiller(driver);
 
-	}
-
-	// Raw executeCdpCommand (not typed DevTools bindings) avoids being pinned to one CDP protocol version
-	private void enableNetworkDomainIfNeeded() {
-		if (!networkDomainEnabled) {
-			((HasCdp) driver).executeCdpCommand("Network.enable", Map.of());
-			networkDomainEnabled = true;
-		}
-	}
-
-	private boolean networkDomainEnabled;
-
-	@When("user's internet connection is disconnected")
-	public void userInternetConnectionIsDisconnected() {
-		enableNetworkDomainIfNeeded();
-		((HasCdp) driver).executeCdpCommand("Network.emulateNetworkConditions", Map.of("offline", true, "latency", 0,
-				"downloadThroughput", 0, "uploadThroughput", 0));
-	}
-
-	@When("user's internet connection is restored")
-	public void userInternetConnectionIsRestored() {
-		enableNetworkDomainIfNeeded();
-		((HasCdp) driver).executeCdpCommand("Network.emulateNetworkConditions", Map.of("offline", false, "latency", 0,
-				"downloadThroughput", -1, "uploadThroughput", -1));
-	}
-
-	@Then("verify the network error screen is displayed")
-	public void verifyNetworkErrorScreenIsDisplayed() {
-		Assert.assertTrue(loginOptionsPage.isNetworkErrorScreenDisplayed(), "Network error screen is not displayed");
-	}
-
-	@Then("verify language dropdown is not displayed on the network error screen")
-	public void verifyLanguageDropdownNotDisplayedOnNetworkErrorScreen() {
-		Assert.assertFalse(loginOptionsPage.isLanguageDropdownDisplayed(),
-				"Language dropdown should not be displayed on the network error screen");
-	}
-
-	@When("user clicks on try again button on the network error screen")
-	public void userClicksOnTryAgainButtonOnNetworkErrorScreen() {
-		loginOptionsPage.clickTryAgainOnNetworkErrorScreen();
 	}
 
 	private String authorizeUrl;
@@ -220,6 +182,12 @@ public class LoginOptionsStepDefinition {
 		loginOptionsPage.clickOnMobileNumberOption();
 	}
 
+	@Then("verify exactly {int} login id option is displayed for authentication")
+	public void verifyExactlyNLoginIdOptionsDisplayed(int expectedCount) {
+		Assert.assertEquals(loginOptionsPage.getDisplayedLoginIdOptionsCount(), expectedCount,
+				"Number of displayed login-id options did not match expected count");
+	}
+
 	@Then("verify the postfix for mobile number option is {string}")
 	public void verifyPostfixForMobileNumberOption(String expectedPostfix) {
 		verifyPostfixForLoginIdOption("mobile", expectedPostfix);
@@ -238,7 +206,13 @@ public class LoginOptionsStepDefinition {
 		loginOptionsPage.clickOnPasswordScreenMobilePrefixDropdownButton();
 	}
 
-	// Effective maxLength follows prefix-over-outer precedence (mirrors InputWithPrefix.js)
+	/**
+	 * Types a string longer than the effective maxLength (per the config's
+	 * prefix-over-outer precedence, mirroring InputWithPrefix.js exactly) and
+	 * confirms the field actually enforces that limit: extra characters are
+	 * rejected when a limit applies, or all characters are accepted when
+	 * neither level configures one.
+	 */
 	@Then("verify the maxLength precedence is honored for mobile number with {string} prefix")
 	public void verifyMaxLengthPrecedenceForMobileNumberWithPrefix(String prefixLabel) {
 		ClaimsUtil.parseFromUrl(authorizeUrl);
@@ -282,11 +256,6 @@ public class LoginOptionsStepDefinition {
 
 	@Then("clicks on back button in authentication screen page")
 	public void clicksOnBackButtonInAuthenticationScreen() {
-		loginOptionsPage.clickOnBackButton();
-	}
-
-	@When("user clicks on back button in authentication screen page")
-	public void userClicksOnBackButtonInAuthenticationScreen() {
 		loginOptionsPage.clickOnBackButton();
 	}
 
@@ -409,174 +378,19 @@ public class LoginOptionsStepDefinition {
 		loginOptionsPage.enterEmail("    ");
 	}
 
-	@Then("verify login header is displayed in authentication screen")
-	public void verifyLoginHeaderIsDisplayedInAuthenticationScreen() {
-		Assert.assertTrue(loginOptionsPage.isLoginHeaderIsDisplayed(),
-				"Login header is not displayed");
+	@When("user enters valid vid into vid field on password screen")
+	public void userEntersValidVidIntoVidFieldOnPasswordScreen() {
+		loginOptionsPage.typeIntoVidFieldOnPasswordScreen(baseTest.getVid());
 	}
 
-	@Then("verify login sub header is displayed in authentication screen")
-	public void verifyLoginSubHeaderIsDisplayedInAuthenticationScreen() {
-		Assert.assertTrue(loginOptionsPage.isLoginSubHeaderIsDisplayed(),
-				"Login sub header is not displayed");
+	@When("user enters valid password into password field on password screen")
+	public void userEntersValidPasswordIntoPasswordFieldOnPasswordScreen() {
+		loginOptionsPage.enterPasswordForVidLogin(EsignetConfigManager.getproperty("passwordForAddIdentity"));
 	}
 
-	@Then("verify select preferred id header is displayed in authentication screen")
-	public void verifySelectPreferredIdHeaderIsDisplayedInAuthenticationScreen() {
-		Assert.assertTrue(loginOptionsPage.isSelectPreferredIdHeaderIsDisplayed(),
-				"Select preferred id header is not displayed");
-	}
-
-	@Then("verify login header is displayed in verification screen")
-	public void verifyLoginHeaderIsDisplayedInVerificationScreen() {
-		Assert.assertTrue(loginOptionsPage.isLoginHeaderIsDisplayed(),
-				"Login header is not displayed");
-	}
-
-	@Then("verify login sub header is displayed in verification screen")
-	public void verifyLoginSubHeaderIsDisplayedInVerificationScreen() {
-		Assert.assertTrue(loginOptionsPage.isLoginSubHeaderIsDisplayed(),
-				"Login sub header is not displayed");
-	}
-
-	@When("user enters valid email into email field")
-	public void userEntersValidEmailInEmailField() {
-		String email = EsignetUtil.getEmailFromAddIdentity();
-		loginOptionsPage.enterEmail(email);
-	}
-
-	@Then("user enters invalid mobile number into the mobile number field")
-	public void userEntersInvalidMobileNumber() {
-		loginOptionsPage.enterMobileNumberInPasswordScreen("123456");
-	}
-
-	// Falls back to RegisteredDetails (mosipid has no password prerequisite); skips instead of sendKeys(null)
-	private String requireRegisteredPassword() {
-		String password = EsignetUtil.getPrerequisiteRegisteredPassword();
-		if (password == null || password.isBlank()) {
-			password = EsignetUtil.RegisteredDetails.getPassword();
-		}
-		if (password == null || password.isBlank()) {
-			throw new org.testng.SkipException(
-					"Registered password unavailable - no AddIdentity prerequisite password for this plugin, and no signup scenario has populated one yet");
-		}
-		return password;
-	}
-
-	@Then("user enters valid password into mobile password field")
-	public void userEnterPasswordForMobileId() {
-		loginOptionsPage.enterPasswordForMobileId(requireRegisteredPassword());
-	}
-
-	@Then("clicks on login button with password in authentication screen page")
-	public void clicksOnLoginButtonWithPasswordButtonInAuthenticationScreen() {
-		loginOptionsPage.clickOnLoginButtonWithPasswordButton();
-	}
-
-	@Then("verify password with login button is disabled in authentication screen")
-	public void verifyPasswordWithLoginButtonDisabledInAuthenticationScreen() {
-		Assert.assertFalse(loginOptionsPage.isPasswordWithLoginButtonEnabled(), "Password with login button is enabled");
-	}
-
-	@Then("user enters valid password into vid password field")
-	public void userEnterPasswordForVidId() {
-		loginOptionsPage.enterPasswordForVidId(requireRegisteredPassword());
-	}
-
-	@Then("user enters valid password into email password field")
-	public void userEnterPasswordForEmailId() {
-		loginOptionsPage.enterPasswordForEmailId(requireRegisteredPassword());
-	}
-
-	@Then("clicks on prefix number button in password authentication screen page")
-	public void clicksOnPrefixNumberButtonInPasswordAuthenticationScreen() {
-		loginOptionsPage.clickOnPrefixNumberFieldButtonInPasswordScreen();
-	}
-
-	@When("user enters invalid vid into vid field in password authentication screen page")
-	public void userEntersInvalidVidInPasswordScreen() {
-		loginOptionsPage.enterVidInPasswordScreen("8957093658024750");
-	}
-
-	@When("user enters special characters into vid field in password authentication screen page")
-	public void userEntersSpecialCharactersInVidFieldInPasswordScreen() {
-		loginOptionsPage.enterVidInPasswordScreen("&*&%#@%)");
-	}
-
-	@When("user enters only space into vid field in password authentication screen page")
-	public void userEntersOnlySpaceInVidFieldInPasswordScreen() {
-		loginOptionsPage.enterVidInPasswordScreen("    ");
-	}
-
-	@When("user enters prerequisite vid1 into vid field")
-	public void userEntersPrerequisiteVid1() {
-		String vid = EsignetUtil.getPrerequisitePerpetualVid();
-		if (vid == null || vid.isBlank()) {
-			throw new org.testng.SkipException(
-					"Prerequisite VID1 unavailable - enable CreateVID prerequisite or set vid in config.properties");
-		}
-		loginOptionsPage.enterVid(vid);
-	}
-
-	@When("user enters prerequisite vid2 into vid field")
-	public void userEntersPrerequisiteVid2() {
-		String vid = EsignetUtil.getPrerequisiteTemporaryVid();
-		if (vid == null || vid.isBlank()) {
-			throw new org.testng.SkipException(
-					"Prerequisite VID2 unavailable - enable CreateVID prerequisite or set vid in config.properties");
-		}
-		loginOptionsPage.enterVid(vid);
-	}
-
-	@When("user click on Login with Biometrics")
-	public void userClickOnLoginWithBiometrics() {
-		loginOptionsPage.clickOnLoginWithBiometric();
-	}
-
-	@Then("verify secure biometric interface is displayed")
-	public void verifySecureBiometricInterfaceIsDisplayed() {
-		Assert.assertTrue(loginOptionsPage.isBiometricIntegrationContainerDisplayed(),
-				"Secure biometric interface integration container is not displayed");
-	}
-
-	@Then("verify uin vid option is displayed on biometric screen")
-	public void verifyUinVidOptionIsDisplayedOnBiometricScreen() {
-		Assert.assertTrue(loginOptionsPage.isBiometricVidOptionDisplayed(),
-				"UIN/VID option is not displayed on biometric screen");
-	}
-
-	@When("user clicks on uin vid option on biometric screen")
-	public void userClicksOnUinVidOptionOnBiometricScreen() {
-		loginOptionsPage.clickOnBiometricVidOptionButton();
-	}
-
-	@Then("verify vid text field is displayed on biometric screen")
-	public void verifyVidTextFieldIsDisplayedOnBiometricScreen() {
-		Assert.assertTrue(loginOptionsPage.isBiometricVidTextFieldDisplayed(),
-				"VID text field (sbi_vid) is not displayed on biometric screen");
-	}
-
-	@Then("verify scanning devices message is displayed on biometric screen")
-	public void verifyScanningDevicesMessageIsDisplayedOnBiometricScreen() {
-		Assert.assertTrue(loginOptionsPage.isScanningDevicesMessageDisplayed(),
-				"Scanning devices message is not displayed on biometric screen");
-	}
-
-	@Then("verify retry scan button is not displayed while scanning devices")
-	public void verifyRetryScanButtonIsNotDisplayedWhileScanningDevices() {
-		Assert.assertTrue(loginOptionsPage.isRetryScanButtonNotDisplayedWhileScanning(),
-				"Retry scan button should not be displayed while scanning devices for the first time");
-	}
-
-	@Then("verify device not found message is displayed on biometric screen")
-	public void verifyDeviceNotFoundMessageIsDisplayedOnBiometricScreen() {
-		Assert.assertTrue(loginOptionsPage.waitForDeviceNotFoundMessageDisplayed(),
-				"Device not found message is not displayed on biometric screen");
-	}
-
-	@When("user clicks on biometric device scan retry button")
-	public void userClicksOnBiometricDeviceScanRetryButton() {
-		loginOptionsPage.clickOnBiometricDeviceScanRetryButton();
+	@When("clicks on login button in password screen page")
+	public void clicksOnLoginButtonInPasswordScreen() {
+		loginOptionsPage.clickOnPasswordLoginButton();
 	}
 
 }

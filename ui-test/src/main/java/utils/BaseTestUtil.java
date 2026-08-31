@@ -8,20 +8,29 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.apache.commons.lang3.StringUtils;
-import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
-import org.openqa.selenium.chromium.ChromiumDriver;
+import org.openqa.selenium.devtools.DevTools;
+import org.openqa.selenium.devtools.HasDevTools;
+import org.openqa.selenium.devtools.v134.fetch.Fetch;
+import org.openqa.selenium.devtools.v134.fetch.model.HeaderEntry;
+import org.openqa.selenium.devtools.v134.fetch.model.RequestPattern;
+import org.openqa.selenium.devtools.v134.fetch.model.RequestStage;
+import org.openqa.selenium.devtools.v134.network.Network;
 import org.openqa.selenium.edge.EdgeDriver;
 import org.openqa.selenium.edge.EdgeOptions;
 import org.openqa.selenium.firefox.FirefoxDriver;
@@ -40,6 +49,8 @@ public class BaseTestUtil {
 	private static final Logger LOGGER = Logger.getLogger(BaseTestUtil.class.getName());
 	private static final ThreadLocal<String> scenarioBrowserThreadLocal = new ThreadLocal<>();
 	private static final ThreadLocal<String> threadLocalLanguage = new ThreadLocal<>();
+	private static final ThreadLocal<String> cameraPermissionModeThreadLocal = new ThreadLocal<>();
+	private static final ThreadLocal<Boolean> ignoreUnhandledPromptsThreadLocal = new ThreadLocal<>();
 
 	public static URI getBrowserStackUrl() {
 		String accessKey = StringUtils.isBlank(EsignetConfigManager.getproperty("browserstack_access_key"))
@@ -94,7 +105,6 @@ public class BaseTestUtil {
 				ChromeOptions chromeOptions = new ChromeOptions();
 				chromeOptions.addArguments("--use-fake-ui-for-media-stream"); // auto allow camera
 				chromeOptions.addArguments("--use-fake-device-for-media-stream");
-				applyBrowserLocale(chromeOptions, null, null);
 
 				caps.setCapability(ChromeOptions.CAPABILITY, chromeOptions);
 			}
@@ -103,7 +113,6 @@ public class BaseTestUtil {
 				FirefoxOptions firefoxOptions = new FirefoxOptions();
 				firefoxOptions.addPreference("media.navigator.streams.fake", true);
 				firefoxOptions.addPreference("media.navigator.permission.disabled", true);
-				applyBrowserLocale(null, firefoxOptions, null);
 				caps.setCapability(FirefoxOptions.FIREFOX_OPTIONS, firefoxOptions);
 			}
 
@@ -111,7 +120,6 @@ public class BaseTestUtil {
 				EdgeOptions edgeOptions = new EdgeOptions();
 				edgeOptions.addArguments("--use-fake-ui-for-media-stream");
 				edgeOptions.addArguments("--use-fake-device-for-media-stream");
-				applyBrowserLocale(null, null, edgeOptions);
 				caps.setCapability(EdgeOptions.CAPABILITY, edgeOptions);
 			}
 
@@ -134,6 +142,19 @@ public class BaseTestUtil {
 		LOGGER.info("Running on BrowserStack with browser: " + browserName);
 		LOGGER.info("Running with capabilities: " + caps.toString());
 		return new RemoteWebDriver(remoteUrl, caps);
+	}
+
+	/**
+	 * @param setting 1 = allow, 2 = block, per Chrome's managed_default_content_settings values.
+	 */
+	private static void setCameraContentSetting(ChromeOptions chromeOptions, int setting) {
+		Map<String, Object> prefs = new HashMap<>();
+		Map<String, Object> profile = new HashMap<>();
+		Map<String, Object> contentSettings = new HashMap<>();
+		contentSettings.put("media_stream_camera", setting);
+		profile.put("managed_default_content_settings", contentSettings);
+		prefs.put("profile", profile);
+		chromeOptions.setExperimentalOption("prefs", prefs);
 	}
 
 	public static WebDriver getLocalWebDriverInstance(String browser, boolean isMobile, String deviceName)
@@ -166,18 +187,33 @@ public class BaseTestUtil {
 			logPrefs.enable(LogType.PERFORMANCE, Level.ALL);
 			chromeOptions.setCapability("goog:loggingPrefs", logPrefs);
 
-			chromeOptions.addArguments("--use-fake-ui-for-media-stream"); // auto-allow camera
 			chromeOptions.addArguments("--use-fake-device-for-media-stream");
 			chromeOptions.addArguments("--enable-media-stream");
-			applyBrowserLocale(chromeOptions, null, null);
 
-			Map<String, Object> prefs = new HashMap<>();
-			Map<String, Object> profile = new HashMap<>();
-			Map<String, Object> contentSettings = new HashMap<>();
-			contentSettings.put("media_stream_camera", 1);
-			profile.put("managed_default_content_settings", contentSettings);
-			prefs.put("profile", profile);
-			chromeOptions.setExperimentalOption("prefs", prefs);
+			String cameraMode = getCameraPermissionMode();
+			LOGGER.info("Camera permission mode for this scenario: " + cameraMode);
+
+			switch (cameraMode) {
+			case "denied":
+				// Simulates the user clicking "Never allow" - camera_stream_camera=2 blocks
+				// outright, no native prompt is shown, matching a persisted denial.
+				setCameraContentSetting(chromeOptions, 2);
+				break;
+			case "prompt":
+				// Leaves Chrome's camera permission undecided so the app's getUserMedia()
+				// call lands on a real "prompt" state (checked via navigator.permissions.query,
+				// since the native permission bubble itself isn't automatable).
+				break;
+			case "granted":
+			default:
+				chromeOptions.addArguments("--use-fake-ui-for-media-stream"); // auto-allow camera
+				setCameraContentSetting(chromeOptions, 1);
+				break;
+			}
+
+			if (getIgnoreUnhandledPrompts()) {
+				chromeOptions.setCapability("unhandledPromptBehavior", "ignore");
+			}
 
 			// Enable mobile emulation if requested
 			if (isMobile) {
@@ -203,7 +239,6 @@ public class BaseTestUtil {
 
 			LOGGER.info("Chrome args: " + chromeOptions);
 			driver = new ChromeDriver(chromeOptions);
-			applyCdpLocaleOverride(driver);
 			break;
 
 		case "firefox":
@@ -211,7 +246,6 @@ public class BaseTestUtil {
 			FirefoxOptions firefoxOptions = new FirefoxOptions();
 			firefoxOptions.addPreference("media.navigator.streams.fake", true);
 			firefoxOptions.addPreference("media.navigator.permission.disabled", true);
-			applyBrowserLocale(null, firefoxOptions, null);
 
 			if (isHeadless)
 				firefoxOptions.addArguments("--headless");
@@ -225,12 +259,10 @@ public class BaseTestUtil {
 			edgeOptions.addArguments("--use-fake-ui-for-media-stream");
 			edgeOptions.addArguments("--use-fake-device-for-media-stream");
 			edgeOptions.addArguments("--enable-media-stream");
-			applyBrowserLocale(null, null, edgeOptions);
 
 			if (isHeadless)
 				edgeOptions.addArguments("--headless=new");
 			driver = new EdgeDriver(edgeOptions);
-			applyCdpLocaleOverride(driver);
 			break;
 
 		case "safari":
@@ -257,6 +289,17 @@ public class BaseTestUtil {
 				});
 	}
 
+	/**
+	 * Lets an @mobile scenario pick its Chrome device-emulation profile via an
+	 * "@device=<name>" tag (e.g. "@device=iPhone 14" for an iOS-shaped viewport,
+	 * "@device=Pixel 7" for Android), falling back to the global "mobileDevice"
+	 * config property when no such tag is present.
+	 */
+	public static String getDeviceForScenario(Scenario scenario, String fallbackDevice) {
+		return scenario.getSourceTagNames().stream().filter(tag -> tag.toLowerCase().startsWith("@device="))
+				.map(tag -> tag.split("=", 2)[1]).findFirst().orElse(fallbackDevice);
+	}
+
 	public static List<String> getSupportedLocalBrowsers() {
 		String browsers = EsignetConfigManager.getProperty("browsers", "chrome");
 		return Arrays.stream(browsers.split(",")).map(String::toLowerCase).toList();
@@ -278,46 +321,283 @@ public class BaseTestUtil {
 		return threadLocalLanguage.get();
 	}
 
-	private static void applyBrowserLocale(ChromeOptions chromeOptions, FirefoxOptions firefoxOptions,
-			EdgeOptions edgeOptions) {
-		String locale = LanguageUtil.getNeutralBrowserLocale();
-		if (locale == null || locale.isBlank()) {
-			return;
-		}
-		if (chromeOptions != null) {
-			chromeOptions.addArguments("--lang=" + locale);
-		}
-		if (firefoxOptions != null) {
-			firefoxOptions.addPreference("intl.accept_languages", locale);
-		}
-		if (edgeOptions != null) {
-			edgeOptions.addArguments("--lang=" + locale);
-		}
-		LOGGER.info("Browser locale configured to: " + locale);
+	public static void setCameraPermissionMode(String mode) {
+		cameraPermissionModeThreadLocal.set(mode);
 	}
 
-	// --lang doesn't reliably drive navigator.language on Windows, so set it explicitly via CDP
-	private static void applyCdpLocaleOverride(WebDriver driver) {
-		if (!(driver instanceof ChromiumDriver chromiumDriver)) {
+	public static String getCameraPermissionMode() {
+		String mode = cameraPermissionModeThreadLocal.get();
+		return mode != null ? mode : "granted";
+	}
+
+	public static void clearCameraPermissionMode() {
+		cameraPermissionModeThreadLocal.remove();
+	}
+
+	/**
+	 * ChromeDriver's default unhandledPromptBehavior silently auto-accepts
+	 * beforeunload ("Leave site?") prompts, so by default the dialog can never be
+	 * cancelled or asserted on. Scenarios that need to interact with it explicitly
+	 * (via BasePage#acceptAlert/dismissAlert) must opt in via this flag.
+	 */
+	public static void setIgnoreUnhandledPrompts(boolean ignore) {
+		ignoreUnhandledPromptsThreadLocal.set(ignore);
+	}
+
+	public static boolean getIgnoreUnhandledPrompts() {
+		return Boolean.TRUE.equals(ignoreUnhandledPromptsThreadLocal.get());
+	}
+
+	public static void clearIgnoreUnhandledPrompts() {
+		ignoreUnhandledPromptsThreadLocal.remove();
+	}
+
+	/**
+	 * Flips the camera permission for the current origin mid-session via CDP,
+	 * without a driver restart. Used for scenarios where the user grants access
+	 * from browser settings after an earlier denial (e.g. TC_Pre_Video_Preview_07).
+	 */
+	public static void setCameraPermissionAtRuntime(WebDriver driver, String setting) {
+		if (!(driver instanceof ChromeDriver)) {
+			LOGGER.warning("CDP permission override skipped: not a ChromeDriver session");
 			return;
 		}
-		String locale = LanguageUtil.getNeutralBrowserLocale();
-		if (locale == null || locale.isBlank()) {
+		Map<String, Object> permission = new HashMap<>();
+		permission.put("name", "camera");
+
+		URI currentUri = URI.create(driver.getCurrentUrl());
+		String origin = currentUri.getScheme() + "://" + currentUri.getAuthority();
+
+		Map<String, Object> params = new HashMap<>();
+		params.put("permission", permission);
+		params.put("setting", setting); // "granted" | "denied" | "prompt"
+		params.put("origin", origin);
+
+		((ChromeDriver) driver).executeCdpCommand("Browser.setPermission", params);
+	}
+
+	/**
+	 * Simulates disconnecting the network via CDP right at the point the test
+	 * needs it (e.g. immediately after clicking Proceed), rather than relying on
+	 * actually toggling the host machine's Wi-Fi/adapter mid-scenario.
+	 */
+	public static void setNetworkOffline(WebDriver driver, boolean offline) {
+		if (!(driver instanceof ChromeDriver)) {
+			LOGGER.warning("CDP network override skipped: not a ChromeDriver session");
 			return;
 		}
-		try {
-			chromiumDriver.executeCdpCommand("Emulation.setLocaleOverride", Map.of("locale", locale));
+		Map<String, Object> params = new HashMap<>();
+		params.put("offline", offline);
+		params.put("latency", 0);
+		params.put("downloadThroughput", offline ? 0 : -1);
+		params.put("uploadThroughput", offline ? 0 : -1);
 
-			String userAgent = (String) ((JavascriptExecutor) driver).executeScript("return navigator.userAgent;");
-			Map<String, Object> userAgentOverrideParams = new HashMap<>();
-			userAgentOverrideParams.put("userAgent", userAgent);
-			userAgentOverrideParams.put("acceptLanguage", locale);
-			chromiumDriver.executeCdpCommand("Emulation.setUserAgentOverride", userAgentOverrideParams);
+		((ChromeDriver) driver).executeCdpCommand("Network.emulateNetworkConditions", params);
+	}
 
-			LOGGER.info("CDP locale override applied: " + locale);
-		} catch (Exception e) {
-			LOGGER.warning("Failed to apply CDP locale override for " + locale + ": " + e.getMessage());
+	/**
+	 * Attaches a CDP listener that records a timestamp (epoch millis) every time
+	 * a request matching urlSubstring is sent, for as long as the returned list
+	 * is being appended to. Used to verify polling contracts (e.g. slot
+	 * availability checked every 6s, max 10 times) that aren't observable from
+	 * the DOM alone.
+	 */
+	public static List<Long> captureRequestTimestamps(WebDriver driver, String urlSubstring) {
+		List<Long> timestamps = Collections.synchronizedList(new ArrayList<>());
+		if (!(driver instanceof HasDevTools)) {
+			LOGGER.warning("Network request capture skipped: driver does not support DevTools");
+			return timestamps;
 		}
+		DevTools devTools = ((HasDevTools) driver).getDevTools();
+		devTools.createSession();
+		devTools.send(Network.enable(Optional.empty(), Optional.empty(), Optional.empty()));
+		devTools.addListener(Network.requestWillBeSent(), request -> {
+			if (request.getRequest().getUrl().contains(urlSubstring)) {
+				timestamps.add(System.currentTimeMillis());
+				LOGGER.info("Captured request to " + urlSubstring + " at " + System.currentTimeMillis());
+			}
+		});
+		return timestamps;
+	}
+
+	/** Content-type and response status of a captured POST submission. */
+	public static class CapturedSubmission {
+		public final String contentType;
+		public final int statusCode;
+
+		public CapturedSubmission(String contentType, int statusCode) {
+			this.contentType = contentType;
+			this.statusCode = statusCode;
+		}
+	}
+
+	/**
+	 * Attaches a CDP listener that records the Content-Type header and response
+	 * status of every POST request matching urlSubstring. Used to prove the
+	 * registration submit request is actually sent as multipart/form-data (the
+	 * browser sets this header itself when a File/Blob is part of a FormData
+	 * body, so it can't be asserted from the DOM) and that the server accepted
+	 * it. Must be called before the action that triggers the submission (e.g.
+	 * before clicking Continue on the setup account page).
+	 */
+	public static List<CapturedSubmission> captureFormSubmissions(WebDriver driver, String urlSubstring) {
+		List<CapturedSubmission> captured = Collections.synchronizedList(new ArrayList<>());
+		if (!(driver instanceof HasDevTools)) {
+			LOGGER.warning("Network request capture skipped: driver does not support DevTools");
+			return captured;
+		}
+		DevTools devTools = ((HasDevTools) driver).getDevTools();
+		devTools.createSession();
+		devTools.send(Network.enable(Optional.empty(), Optional.empty(), Optional.empty()));
+
+		Map<String, String> pendingContentTypes = Collections.synchronizedMap(new HashMap<>());
+
+		devTools.addListener(Network.requestWillBeSent(), request -> {
+			String url = request.getRequest().getUrl();
+			if (url.contains(urlSubstring) && "POST".equalsIgnoreCase(request.getRequest().getMethod())) {
+				String contentType = request.getRequest().getHeaders().entrySet().stream()
+						.filter(entry -> entry.getKey().equalsIgnoreCase("Content-Type")).map(Map.Entry::getValue)
+						.map(String::valueOf).findFirst().orElse("");
+				pendingContentTypes.put(request.getRequestId().toString(), contentType);
+				LOGGER.info("Captured registration submit request to " + url + " with content-type " + contentType);
+			}
+		});
+
+		devTools.addListener(Network.responseReceived(), response -> {
+			String contentType = pendingContentTypes.remove(response.getRequestId().toString());
+			if (contentType != null) {
+				captured.add(new CapturedSubmission(contentType, response.getResponse().getStatus()));
+				LOGGER.info("Registration submit response status: " + response.getResponse().getStatus());
+			}
+		});
+
+		return captured;
+	}
+
+	/** Full request headers and response status of a captured request, regardless of HTTP method. */
+	public static class CapturedRequest {
+		public final Map<String, Object> headers;
+		public final int statusCode;
+
+		public CapturedRequest(Map<String, Object> headers, int statusCode) {
+			this.headers = headers;
+			this.statusCode = statusCode;
+		}
+	}
+
+	/**
+	 * Attaches a CDP listener that records the full request headers and response
+	 * status of every request matching urlSubstring, regardless of HTTP method.
+	 * Unlike captureFormSubmissions, this doesn't filter by method - used to
+	 * prove a request carried no Authorization header at all (e.g. the KBI
+	 * schema fetch embedded in the oauth-details call, which must be reachable
+	 * without authentication).
+	 */
+	public static List<CapturedRequest> captureRequests(WebDriver driver, String urlSubstring) {
+		List<CapturedRequest> captured = Collections.synchronizedList(new ArrayList<>());
+		if (!(driver instanceof HasDevTools)) {
+			LOGGER.warning("Network request capture skipped: driver does not support DevTools");
+			return captured;
+		}
+		DevTools devTools = ((HasDevTools) driver).getDevTools();
+		devTools.createSession();
+		devTools.send(Network.enable(Optional.empty(), Optional.empty(), Optional.empty()));
+
+		Map<String, Map<String, Object>> pendingHeaders = Collections.synchronizedMap(new HashMap<>());
+
+		devTools.addListener(Network.requestWillBeSent(), request -> {
+			String url = request.getRequest().getUrl();
+			if (url.contains(urlSubstring)) {
+				pendingHeaders.put(request.getRequestId().toString(), request.getRequest().getHeaders());
+				LOGGER.info("Captured request to " + url);
+			}
+		});
+
+		devTools.addListener(Network.responseReceived(), response -> {
+			Map<String, Object> headers = pendingHeaders.remove(response.getRequestId().toString());
+			if (headers != null) {
+				captured.add(new CapturedRequest(headers, response.getResponse().getStatus()));
+				LOGGER.info("Response status for captured request: " + response.getResponse().getStatus());
+			}
+		});
+
+		return captured;
+	}
+
+	/**
+	 * Intercepts every request matching urlSubstring via the CDP Fetch domain
+	 * and fulfills it with a synthetic JSON body/status, instead of letting it
+	 * reach the real backend. Used to deterministically reproduce backend error
+	 * conditions (e.g. a "response timed out" error code) that can't reliably
+	 * be forced by actually waiting for a slow/hanging server. Must be called
+	 * before the action that triggers the request.
+	 */
+	public static void mockApiErrorResponse(WebDriver driver, String urlSubstring, int statusCode, String jsonBody) {
+		if (!(driver instanceof HasDevTools)) {
+			throw new UnsupportedOperationException("Request mocking is only supported on Chromium-based drivers");
+		}
+		DevTools devTools = ((HasDevTools) driver).getDevTools();
+		devTools.createSession();
+
+		RequestPattern pattern = new RequestPattern(Optional.of("*" + urlSubstring + "*"), Optional.empty(),
+				Optional.of(RequestStage.RESPONSE));
+		devTools.send(Fetch.enable(Optional.of(List.of(pattern)), Optional.empty()));
+
+		devTools.addListener(Fetch.requestPaused(), request -> {
+			String url = request.getRequest().getUrl();
+			if (url.contains(urlSubstring)) {
+				String encodedBody = Base64.getEncoder().encodeToString(jsonBody.getBytes(StandardCharsets.UTF_8));
+				List<HeaderEntry> headers = List.of(new HeaderEntry("Content-Type", "application/json"));
+				devTools.send(Fetch.fulfillRequest(request.getRequestId(), statusCode, Optional.of(headers),
+						Optional.empty(), Optional.of(encodedBody), Optional.empty()));
+				LOGGER.info("Mocked response for " + url + " with status " + statusCode);
+			} else {
+				devTools.send(Fetch.continueRequest(request.getRequestId(), Optional.empty(), Optional.empty(),
+						Optional.empty(), Optional.empty(), Optional.empty()));
+			}
+		});
+	}
+
+	private static final ThreadLocal<List<CapturedRequest>> kbiSchemaFetchCaptureThreadLocal = new ThreadLocal<>();
+
+	/**
+	 * The KBI schema is embedded in the oauth-details request/response that
+	 * fires as soon as the authorize page loads - i.e. before any Cucumber step
+	 * runs. Must be called from BaseTest right before the initial
+	 * driver.get(authorizeUrl), gated by scenario tag, so the listener is
+	 * attached before that request happens.
+	 */
+	public static void startCapturingKbiSchemaFetchRequest(WebDriver driver) {
+		kbiSchemaFetchCaptureThreadLocal.set(captureRequests(driver, "oauth-details"));
+	}
+
+	public static List<CapturedRequest> getCapturedKbiSchemaFetchRequests() {
+		return kbiSchemaFetchCaptureThreadLocal.get();
+	}
+
+	public static void clearKbiSchemaFetchCapture() {
+		kbiSchemaFetchCaptureThreadLocal.remove();
+	}
+
+	private static final ThreadLocal<List<CapturedRequest>> uiSpecFetchCaptureThreadLocal = new ThreadLocal<>();
+
+	/**
+	 * The signup UI schema (ui-spec) is fetched by the Setup Account form as
+	 * soon as it renders, which happens well after the initial page load. The
+	 * DevTools listener stays attached across navigations within the same
+	 * session, so starting this early (gated by the @signupUiSchemaFetch tag
+	 * hook in BaseTest, before the first driver.get()) still catches it.
+	 */
+	public static void startCapturingUiSpecFetchRequest(WebDriver driver) {
+		uiSpecFetchCaptureThreadLocal.set(captureRequests(driver, "ui-spec"));
+	}
+
+	public static List<CapturedRequest> getCapturedUiSpecFetchRequests() {
+		return uiSpecFetchCaptureThreadLocal.get();
+	}
+
+	public static void clearUiSpecFetchCapture() {
+		uiSpecFetchCaptureThreadLocal.remove();
 	}
 
 }
